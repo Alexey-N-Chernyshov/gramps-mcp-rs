@@ -14,7 +14,7 @@ MCP server for [Gramps Web](https://www.grampsweb.org/) genealogy API, written i
 **1. Clone and build the image**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/gramps-mcp-rs.git
+git clone https://github.com/Alexey-N-Chernyshov/gramps-mcp-rs.git
 cd gramps-mcp-rs
 docker compose -f docker-compose.dev.yml build
 ```
@@ -38,12 +38,15 @@ For Claude Desktop, add to `~/Library/Application Support/Claude/claude_desktop_
         "GRAMPS_USERNAME",
         "-e",
         "GRAMPS_PASSWORD",
+        "-e",
+        "GRAMPS_READONLY",
         "gramps-mcp-rs:dev"
       ],
       "env": {
         "GRAMPS_API_URL": "https://gramps.example.com",
         "GRAMPS_USERNAME": "your-username",
-        "GRAMPS_PASSWORD": "your-password"
+        "GRAMPS_PASSWORD": "your-password",
+        "GRAMPS_READONLY": "false"
       }
     }
   }
@@ -58,6 +61,10 @@ For Claude Desktop, add to `~/Library/Application Support/Claude/claude_desktop_
 | `GRAMPS_USERNAME` | Login username                                            |
 | `GRAMPS_PASSWORD` | Login password                                            |
 | `GRAMPS_READONLY` | Set to `true` to hide all write tools (default: `false`)  |
+
+### Tools
+
+67 tools across search, get, create, update, delete, merge, and transaction categories. See [docs/tools.md](docs/tools.md) for the full reference.
 
 ---
 
