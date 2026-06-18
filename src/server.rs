@@ -9,7 +9,7 @@ use params::{
     CreateCitationInput, CreateEventInput, CreateFamilyInput, CreateMediaInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
     GetObjectInput, HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput,
-    ObjectType, SearchInput, UpdateInput,
+    SearchInput, UpdateInput,
 };
 use rmcp::{
     handler::server::{
@@ -18,9 +18,8 @@ use rmcp::{
     },
     model::{
         CallToolRequestParams, CallToolResult, Content, ErrorCode, Implementation,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, RawResource,
-        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
-        ServerInfo,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
+        ReadResourceResult, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
@@ -111,51 +110,43 @@ Set object_type to narrow results to a specific type, or omit to search across a
         &self,
         Parameters(SearchInput { query, object_type }): Parameters<SearchInput>,
     ) -> Result<CallToolResult, McpError> {
-        search::search(&self.client, &query, object_type.map(ObjectType::as_str))
+        search::search(&self.client, &query, object_type.as_deref())
             .await
             .map_or_else(api_err, ok_json)
     }
 
     // ── Get ─────────────────────────────────────────────────────────────────
 
-    #[tool(
-        description = "Get the GQL (Gramps Query Language) reference: operators, special properties, and object property names by type. Call this before writing a gql filter."
-    )]
-    async fn get_gql_reference(&self) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text(GQL_REFERENCE)]))
-    }
-
     #[tool(description = "\
-Get genealogy objects by type. \
-Provide `handle` to fetch a single record, or use `gramps_id` / `gql` / `page` / `pagesize` to fetch a filtered collection. \
-Call get_gql_reference first if you need GQL syntax help.")]
+Get genealogy objects. \
+`object_type` is required (person/family/event/place/note/citation/source/media/repository/tag). \
+Provide `handle` for a single record, or `gramps_id`/`page`/`pagesize` to browse a collection. \
+For name/text search use the `search` tool instead.")]
     async fn get_object(
         &self,
         Parameters(GetObjectInput {
             object_type,
             handle,
             gramps_id,
-            gql,
             page,
             pagesize,
         }): Parameters<GetObjectInput>,
     ) -> Result<CallToolResult, McpError> {
+        let Some(endpoint) = params::type_to_endpoint(&object_type) else {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Unknown object_type \"{object_type}\". \
+                 Must be one of: person, family, event, place, note, citation, source, media, repository, tag"
+            ))]));
+        };
         let result = if let Some(h) = handle {
-            get::get_object_by_handle(&self.client, object_type.endpoint(), &h).await
-        } else if gramps_id.is_some() || gql.is_some() || page.is_some() || pagesize.is_some() {
-            get::get_object_collection(
-                &self.client,
-                object_type.endpoint(),
-                gramps_id.as_deref(),
-                gql.as_deref(),
-                page,
-                pagesize,
-            )
-            .await
+            get::get_object_by_handle(&self.client, endpoint, &h).await
+        } else if gramps_id.is_some() || page.is_some() || pagesize.is_some() {
+            get::get_object_collection(&self.client, endpoint, gramps_id.as_deref(), page, pagesize)
+                .await
         } else {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Provide `handle` to get a single object, \
-                 or `gramps_id` / `gql` / `page` / `pagesize` to query a collection.",
+                "Provide `handle` for a single object, \
+                 or `gramps_id` / `page` / `pagesize` to browse a collection.",
             )]));
         };
         result.map_or_else(api_err, ok_json)
@@ -933,13 +924,8 @@ impl ServerHandler for GrampsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        let resource = RawResource::new("gramps://gql-reference", "gql-reference")
-            .with_title("GQL Reference")
-            .with_description("Gramps Query Language syntax, operators and property reference")
-            .with_mime_type("text/markdown");
-        use rmcp::model::Annotated;
         Ok(ListResourcesResult {
-            resources: vec![Annotated::new(resource, None)],
+            resources: vec![],
             meta: None,
             next_cursor: None,
         })
@@ -950,12 +936,6 @@ impl ServerHandler for GrampsMcpServer {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
-        if request.uri == "gramps://gql-reference" {
-            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
-                GQL_REFERENCE,
-                "gramps://gql-reference",
-            )]));
-        }
         Err(McpError::invalid_params(
             format!("Unknown resource: {}", request.uri),
             None,
@@ -1018,8 +998,6 @@ impl ServerHandler for GrampsMcpServer {
         }
     }
 }
-
-const GQL_REFERENCE: &str = include_str!("resources/gql_reference.md");
 
 // See the WORKAROUND comment on list_tools above.
 fn fix_schema(v: &mut serde_json::Value) {
