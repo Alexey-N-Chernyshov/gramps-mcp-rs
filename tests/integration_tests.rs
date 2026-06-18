@@ -43,6 +43,16 @@ async fn get_nonexistent_returns_not_found() {
 }
 
 #[tokio::test]
+async fn delete_nonexistent_returns_not_found() {
+    let fixture = common::TestFixture::new().await;
+    let result = delete::delete_person(&fixture.client, "NONEXISTENT_HANDLE").await;
+    assert!(
+        matches!(result, Err(Error::NotFound(_))),
+        "expected NotFound, got: {result:?}"
+    );
+}
+
+#[tokio::test]
 async fn create_and_get_person_round_trip() {
     let fixture = common::TestFixture::new().await;
 
@@ -159,6 +169,18 @@ async fn family_with_parents() {
     let family = get::get_family(client, &family_handle).await.unwrap();
     assert_eq!(family.father_handle.as_deref(), Some(father.as_str()));
     assert_eq!(family.mother_handle.as_deref(), Some(mother.as_str()));
+
+    // update: clear mother_handle
+    let mut body = serde_json::to_value(&family).unwrap();
+    body["mother_handle"] = serde_json::json!(null);
+    update::update_family(client, &family_handle, &body)
+        .await
+        .unwrap();
+    let updated = get::get_family(client, &family_handle).await.unwrap();
+    assert!(
+        updated.mother_handle.is_none(),
+        "mother_handle should be cleared after update"
+    );
 }
 
 #[tokio::test]
