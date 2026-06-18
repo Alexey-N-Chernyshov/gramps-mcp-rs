@@ -1,12 +1,73 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ObjectType {
+    Person,
+    Family,
+    Event,
+    Place,
+    Note,
+    Citation,
+    Source,
+    Media,
+    Repository,
+    Tag,
+}
+
+impl ObjectType {
+    pub fn endpoint(self) -> &'static str {
+        match self {
+            Self::Person => "people",
+            Self::Family => "families",
+            Self::Event => "events",
+            Self::Place => "places",
+            Self::Note => "notes",
+            Self::Citation => "citations",
+            Self::Source => "sources",
+            Self::Media => "media",
+            Self::Repository => "repositories",
+            Self::Tag => "tags",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::Family => "family",
+            Self::Event => "event",
+            Self::Place => "place",
+            Self::Note => "note",
+            Self::Citation => "citation",
+            Self::Source => "source",
+            Self::Media => "media",
+            Self::Repository => "repository",
+            Self::Tag => "tag",
+        }
+    }
+}
+
 #[derive(Deserialize, JsonSchema)]
 pub struct SearchInput {
     pub query: String,
-    /// Object type to search. One of: person, family, event, place, note, tag,
-    /// citation, media, repository, source. Omit to search across all types.
-    pub object_type: Option<String>,
+    /// Object type to search. Omit to search across all types.
+    pub object_type: Option<ObjectType>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct GetObjectInput {
+    pub object_type: ObjectType,
+    /// Handle of a specific object — returns a single record.
+    pub handle: Option<String>,
+    /// Filter by Gramps ID (e.g. "I0001") — returns a collection.
+    pub gramps_id: Option<String>,
+    /// GQL filter expression (call get_gql_reference for full syntax).
+    pub gql: Option<String>,
+    /// Page number (1-based) for paginated collection results.
+    pub page: Option<u32>,
+    /// Results per page for collection results (default 20).
+    pub pagesize: Option<u32>,
 }
 
 #[derive(Deserialize, JsonSchema)]

@@ -8,8 +8,8 @@ use crate::{
 use params::{
     CreateCitationInput, CreateEventInput, CreateFamilyInput, CreateMediaInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
-    HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput, SearchInput,
-    UpdateInput,
+    GetObjectInput, HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput,
+    ObjectType, SearchInput, UpdateInput,
 };
 use rmcp::{
     handler::server::{
@@ -17,8 +17,10 @@ use rmcp::{
         wrapper::Parameters,
     },
     model::{
-        CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResult, Content, ErrorCode, Implementation,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, RawResource,
+        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
+        ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
@@ -89,146 +91,74 @@ const WRITE_TOOLS: &[&str] = &[
     "merge_source",
 ];
 
+fn ok_json(v: serde_json::Value) -> Result<CallToolResult, McpError> {
+    let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+    Ok(CallToolResult::success(vec![Content::text(text)]))
+}
+
+fn api_err(e: impl std::fmt::Display) -> Result<CallToolResult, McpError> {
+    Ok(CallToolResult::error(vec![Content::text(e.to_string())]))
+}
+
 #[tool_router]
 impl GrampsMcpServer {
     // ── Search ──────────────────────────────────────────────────────────────
 
     #[tool(description = "\
 Full-text search across the genealogy database. \
-Set object_type to narrow results to a specific type: \
-person, family, event, place, note, tag, citation, media, repository, source. \
-Omit object_type to search across all types at once.")]
+Set object_type to narrow results to a specific type, or omit to search across all types.")]
     async fn search(
         &self,
         Parameters(SearchInput { query, object_type }): Parameters<SearchInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = search::search(&self.client, &query, object_type.as_deref())
+        search::search(&self.client, &query, object_type.map(ObjectType::as_str))
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     // ── Get ─────────────────────────────────────────────────────────────────
 
-    #[tool(description = "Get full details for a person by handle")]
-    async fn get_person(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let person = get::get_person(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&person).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+    #[tool(
+        description = "Get the GQL (Gramps Query Language) reference: operators, special properties, and object property names by type. Call this before writing a gql filter."
+    )]
+    async fn get_gql_reference(&self) -> Result<CallToolResult, McpError> {
+        Ok(CallToolResult::success(vec![Content::text(GQL_REFERENCE)]))
     }
 
-    #[tool(description = "Get full details for a family by handle")]
-    async fn get_family(
+    #[tool(description = "\
+Get genealogy objects by type. \
+Provide `handle` to fetch a single record, or use `gramps_id` / `gql` / `page` / `pagesize` to fetch a filtered collection. \
+Call get_gql_reference first if you need GQL syntax help.")]
+    async fn get_object(
         &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
+        Parameters(GetObjectInput {
+            object_type,
+            handle,
+            gramps_id,
+            gql,
+            page,
+            pagesize,
+        }): Parameters<GetObjectInput>,
     ) -> Result<CallToolResult, McpError> {
-        let family = get::get_family(&self.client, &handle)
+        let result = if let Some(h) = handle {
+            get::get_object_by_handle(&self.client, object_type.endpoint(), &h).await
+        } else if gramps_id.is_some() || gql.is_some() || page.is_some() || pagesize.is_some() {
+            get::get_object_collection(
+                &self.client,
+                object_type.endpoint(),
+                gramps_id.as_deref(),
+                gql.as_deref(),
+                page,
+                pagesize,
+            )
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&family).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for an event by handle")]
-    async fn get_event(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_event(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a place by handle")]
-    async fn get_place(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_place(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a citation by handle")]
-    async fn get_citation(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_citation(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a note by handle")]
-    async fn get_note(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_note(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a media object by handle")]
-    async fn get_media(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_media(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a repository by handle")]
-    async fn get_repository(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_repository(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a tag by handle")]
-    async fn get_tag(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_tag(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a source by handle")]
-    async fn get_source(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_source(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        } else {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Provide `handle` to get a single object, \
+                 or `gramps_id` / `gql` / `page` / `pagesize` to query a collection.",
+            )]));
+        };
+        result.map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get the most direct relationship path between two people")]
@@ -236,11 +166,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(HandlePairInput { handle1, handle2 }): Parameters<HandlePairInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_relations(&self.client, &handle1, &handle2)
+        get::get_relations(&self.client, &handle1, &handle2)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get chronological event timeline for a person")]
@@ -248,11 +176,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(HandleInput { handle }): Parameters<HandleInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_person_timeline(&self.client, &handle)
+        get::get_person_timeline(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get chronological event timeline for a family")]
@@ -260,11 +186,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(HandleInput { handle }): Parameters<HandleInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_family_timeline(&self.client, &handle)
+        get::get_family_timeline(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get the time span between two events (e.g. birth and death)")]
@@ -272,20 +196,16 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(HandlePairInput { handle1, handle2 }): Parameters<HandlePairInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_event_span(&self.client, &handle1, &handle2)
+        get::get_event_span(&self.client, &handle1, &handle2)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get tree-level statistics and metadata")]
     async fn get_tree_info(&self) -> Result<CallToolResult, McpError> {
-        let info = get::get_tree_info(&self.client)
+        get::get_tree_info(&self.client)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&info).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     // ── Create ──────────────────────────────────────────────────────────────
@@ -323,13 +243,13 @@ Omit object_type to search across all types at once.")]
             ..Default::default()
         };
 
-        let handle = create::create_person(&self.client, req)
+        create::create_person(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created person with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created person with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new family linking father and/or mother by their handles")]
@@ -348,13 +268,13 @@ Omit object_type to search across all types at once.")]
             ..Default::default()
         };
 
-        let handle = create::create_family(&self.client, req)
+        create::create_family(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created family with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created family with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new event (birth, death, marriage, etc.)")]
@@ -382,13 +302,13 @@ Omit object_type to search across all types at once.")]
             ..Default::default()
         };
 
-        let handle = create::create_event(&self.client, req)
+        create::create_event(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created event with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created event with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new place record")]
@@ -408,13 +328,13 @@ Omit object_type to search across all types at once.")]
             ..Default::default()
         };
 
-        let handle = create::create_place(&self.client, req)
+        create::create_place(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created place with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created place with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new source record")]
@@ -435,13 +355,13 @@ Omit object_type to search across all types at once.")]
             ..Default::default()
         };
 
-        let handle = create::create_source(&self.client, req)
+        create::create_source(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created source with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created source with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new tag with a name, optional color (hex) and priority")]
@@ -453,12 +373,13 @@ Omit object_type to search across all types at once.")]
             priority,
         }): Parameters<CreateTagInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_tag(&self.client, &name, color.as_deref(), priority)
+        create::create_tag(&self.client, &name, color.as_deref(), priority)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created tag with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created tag with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new citation linking a source by handle")]
@@ -469,12 +390,13 @@ Omit object_type to search across all types at once.")]
             page,
         }): Parameters<CreateCitationInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_citation(&self.client, &source_handle, page.as_deref())
+        create::create_citation(&self.client, &source_handle, page.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created citation with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created citation with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new repository record")]
@@ -482,12 +404,13 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(CreateRepositoryInput { name, repo_type }): Parameters<CreateRepositoryInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_repository(&self.client, &name, repo_type.as_deref())
+        create::create_repository(&self.client, &name, repo_type.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created repository with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created repository with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a text note")]
@@ -495,12 +418,13 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(CreateNoteInput { text, note_type }): Parameters<CreateNoteInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_note(&self.client, &text, note_type.as_deref())
+        create::create_note(&self.client, &text, note_type.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created note with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created note with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(
@@ -515,7 +439,7 @@ Omit object_type to search across all types at once.")]
             mime,
         }): Parameters<CreateMediaInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = match (path.as_deref(), url.as_deref()) {
+        match (path.as_deref(), url.as_deref()) {
             (_, Some(url)) => {
                 create::create_media_from_url(
                     &self.client,
@@ -535,17 +459,16 @@ Omit object_type to search across all types at once.")]
                 .await
             }
             (None, None) => {
-                return Err(McpError::invalid_params(
+                return Ok(CallToolResult::error(vec![Content::text(
                     "Either path or url must be provided",
-                    None,
-                ))
+                )]))
             }
         }
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created media with handle: {handle}"
-        ))]))
+        .map_or_else(api_err, |handle| {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Created media with handle: {handle}"
+            ))]))
+        })
     }
 
     // ── Update ──────────────────────────────────────────────────────────────
@@ -557,11 +480,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_person(&self.client, &handle, &data)
+        update::update_person(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -571,11 +492,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_family(&self.client, &handle, &data)
+        update::update_family(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -585,11 +504,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_event(&self.client, &handle, &data)
+        update::update_event(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -599,11 +516,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_place(&self.client, &handle, &data)
+        update::update_place(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -613,11 +528,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_source(&self.client, &handle, &data)
+        update::update_source(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -627,11 +540,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_citation(&self.client, &handle, &data)
+        update::update_citation(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -641,11 +552,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_repository(&self.client, &handle, &data)
+        update::update_repository(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -655,11 +564,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_note(&self.client, &handle, &data)
+        update::update_note(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -669,11 +576,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_tag(&self.client, &handle, &data)
+        update::update_tag(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -683,11 +588,9 @@ Omit object_type to search across all types at once.")]
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_media(&self.client, &handle, &data)
+        update::update_media(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     // ── Delete ──────────────────────────────────────────────────────────────
@@ -699,10 +602,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_person(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted person {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted person {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a family by handle")]
@@ -712,10 +616,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_family(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted family {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted family {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete an event by handle")]
@@ -725,10 +630,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_event(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted event {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted event {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a place by handle")]
@@ -738,10 +644,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_place(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted place {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted place {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a source by handle")]
@@ -751,10 +658,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_source(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted source {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted source {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a citation by handle")]
@@ -764,10 +672,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_citation(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted citation {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted citation {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a repository by handle")]
@@ -777,10 +686,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_repository(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted repository {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted repository {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a note by handle")]
@@ -790,10 +700,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_note(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted note {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted note {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a tag by handle")]
@@ -803,10 +714,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_tag(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted tag {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted tag {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Delete a media object by handle")]
@@ -816,10 +728,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         delete::delete_media(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted media {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted media {handle}"
+                ))]))
+            })
     }
 
     // ── Merge ───────────────────────────────────────────────────────────────
@@ -842,10 +755,11 @@ Omit object_type to search across all types at once.")]
             family_merger.unwrap_or(true),
         )
         .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged person {duplicate_handle} into {survivor_handle}"
-        ))]))
+        .map_or_else(api_err, |_| {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Merged person {duplicate_handle} into {survivor_handle}"
+            ))]))
+        })
     }
 
     #[tool(
@@ -868,10 +782,11 @@ Omit object_type to search across all types at once.")]
             phoenix_mother_handle.as_deref(),
         )
         .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged family {duplicate_handle} into {survivor_handle}"
-        ))]))
+        .map_or_else(api_err, |_| {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Merged family {duplicate_handle} into {survivor_handle}"
+            ))]))
+        })
     }
 
     #[tool(
@@ -886,10 +801,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_citation(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged citation {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged citation {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two events: survivor_handle is kept, duplicate_handle is deleted")]
@@ -902,10 +818,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_event(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged event {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged event {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(
@@ -920,10 +837,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_media(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged media {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged media {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two notes: survivor_handle is kept, duplicate_handle is deleted")]
@@ -936,10 +854,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_note(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged note {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged note {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two places: survivor_handle is kept, duplicate_handle is deleted")]
@@ -952,10 +871,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_place(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged place {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged place {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(
@@ -970,10 +890,11 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_repository(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged repository {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged repository {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two sources: survivor_handle is kept, duplicate_handle is deleted")]
@@ -986,19 +907,59 @@ Omit object_type to search across all types at once.")]
     ) -> Result<CallToolResult, McpError> {
         merge::merge_source(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged source {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged source {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 }
 
 #[tool_handler]
 impl ServerHandler for GrampsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("MCP server for querying and updating genealogy data in Gramps Web.")
-            .with_server_info(Implementation::new("gramps-mcp", env!("CARGO_PKG_VERSION")))
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_instructions("MCP server for querying and updating genealogy data in Gramps Web.")
+        .with_server_info(Implementation::new("gramps-mcp", env!("CARGO_PKG_VERSION")))
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        let resource = RawResource::new("gramps://gql-reference", "gql-reference")
+            .with_title("GQL Reference")
+            .with_description("Gramps Query Language syntax, operators and property reference")
+            .with_mime_type("text/markdown");
+        use rmcp::model::Annotated;
+        Ok(ListResourcesResult {
+            resources: vec![Annotated::new(resource, None)],
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        if request.uri == "gramps://gql-reference" {
+            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                GQL_REFERENCE,
+                "gramps://gql-reference",
+            )]));
+        }
+        Err(McpError::invalid_params(
+            format!("Unknown resource: {}", request.uri),
+            None,
+        ))
     }
 
     // WORKAROUND: Claude Desktop does not recognise JSON Schema draft 2020-12
@@ -1042,11 +1003,23 @@ impl ServerHandler for GrampsMcpServer {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        self.tools
+        match self
+            .tools
             .call(ToolCallContext::new(self, request, context))
             .await
+        {
+            Err(e) if e.code == ErrorCode::INVALID_PARAMS => {
+                Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Invalid parameters: {}",
+                    e.message
+                ))]))
+            }
+            other => other,
+        }
     }
 }
+
+const GQL_REFERENCE: &str = include_str!("resources/gql_reference.md");
 
 // See the WORKAROUND comment on list_tools above.
 fn fix_schema(v: &mut serde_json::Value) {
