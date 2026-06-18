@@ -170,17 +170,28 @@ async fn family_with_parents() {
     assert_eq!(family.father_handle.as_deref(), Some(father.as_str()));
     assert_eq!(family.mother_handle.as_deref(), Some(mother.as_str()));
 
-    // update: clear mother_handle
+    // update: replace mother with a new person
+    let new_mother = create::create_person(
+        client,
+        CreatePersonRequest {
+            gender: Some(2),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     let mut body = serde_json::to_value(&family).unwrap();
-    body["mother_handle"] = serde_json::json!(null);
+    body["mother_handle"] = serde_json::json!(new_mother);
     update::update_family(client, &family_handle, &body)
         .await
         .unwrap();
     let updated = get::get_family(client, &family_handle).await.unwrap();
-    assert!(
-        updated.mother_handle.is_none(),
-        "mother_handle should be cleared after update"
+    assert_eq!(
+        updated.mother_handle.as_deref(),
+        Some(new_mother.as_str()),
+        "mother_handle should be updated"
     );
+    delete::delete_person(client, &new_mother).await.unwrap();
 }
 
 #[tokio::test]
