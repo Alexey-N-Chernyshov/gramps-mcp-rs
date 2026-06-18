@@ -8,7 +8,7 @@ use crate::{
 use params::{
     CreateCitationInput, CreateEventInput, CreateFamilyInput, CreateMediaInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
-    HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput, QueryInput,
+    HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput, SearchInput,
     UpdateInput,
 };
 use rmcp::{
@@ -93,132 +93,16 @@ const WRITE_TOOLS: &[&str] = &[
 impl GrampsMcpServer {
     // ── Search ──────────────────────────────────────────────────────────────
 
-    #[tool(description = "Search for people in the genealogy database")]
-    async fn find_person(
+    #[tool(description = "\
+Full-text search across the genealogy database. \
+Set object_type to narrow results to a specific type: \
+person, family, event, place, note, tag, citation, media, repository, source. \
+Omit object_type to search across all types at once.")]
+    async fn search(
         &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
+        Parameters(SearchInput { query, object_type }): Parameters<SearchInput>,
     ) -> Result<CallToolResult, McpError> {
-        let items = search::find_person(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for families in the genealogy database")]
-    async fn find_family(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_family(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for events in the genealogy database")]
-    async fn find_event(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_event(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for places in the genealogy database")]
-    async fn find_place(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_place(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for notes in the genealogy database")]
-    async fn find_note(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_note(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for tags in the genealogy database")]
-    async fn find_tag(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_tag(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for citations in the genealogy database")]
-    async fn find_citation(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_citation(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for media objects in the genealogy database")]
-    async fn find_media(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_media(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for repositories in the genealogy database")]
-    async fn find_repository(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_repository(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for sources in the genealogy database")]
-    async fn find_source(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_source(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Full-text search across all genealogy object types")]
-    async fn find_anything(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let result = search::find_anything(&self.client, &query)
+        let result = search::search(&self.client, &query, object_type.as_deref())
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let text = serde_json::to_string_pretty(&result).unwrap_or_default();

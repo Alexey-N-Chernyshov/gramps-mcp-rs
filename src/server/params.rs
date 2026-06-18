@@ -2,8 +2,11 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 #[derive(Deserialize, JsonSchema)]
-pub struct QueryInput {
+pub struct SearchInput {
     pub query: String,
+    /// Object type to search. One of: person, family, event, place, note, tag,
+    /// citation, media, repository, source. Omit to search across all types.
+    pub object_type: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]

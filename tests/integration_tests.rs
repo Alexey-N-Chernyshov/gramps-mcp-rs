@@ -695,29 +695,33 @@ async fn search_endpoints_return_ok() {
         .await
         .unwrap();
 
-    // Each find_* endpoint must be reachable (Ok) and return a JSON array.
+    // Each type must be reachable and return a JSON array.
     // If a type is not yet indexed, the server returns Ok([]) — still valid.
     macro_rules! assert_search {
-        ($call:expr, $name:literal) => {
-            let r = $call.await.expect(concat!($name, " failed"));
-            assert!(r.is_array(), concat!($name, " should return an array"));
+        ($query:expr, $type:expr) => {
+            let r = search::search(client, $query, $type)
+                .await
+                .unwrap_or_else(|e| panic!("search({:?}, {:?}) failed: {e}", $query, $type));
+            assert!(
+                r.is_array(),
+                "search({:?}, {:?}) should return an array",
+                $query,
+                $type
+            );
         };
     }
 
-    assert_search!(search::find_person(client, "Searchable"), "find_person");
-    assert_search!(search::find_source(client, "Search Source"), "find_source");
-    assert_search!(search::find_citation(client, "citation"), "find_citation");
-    assert_search!(search::find_event(client, "Birth"), "find_event");
-    assert_search!(search::find_place(client, "Search Place"), "find_place");
-    assert_search!(search::find_family(client, "family"), "find_family");
-    assert_search!(search::find_note(client, "note"), "find_note");
-    assert_search!(search::find_tag(client, "SearchTag"), "find_tag");
-    assert_search!(
-        search::find_repository(client, "Search Repo"),
-        "find_repository"
-    );
-    assert_search!(search::find_media(client, "search"), "find_media");
-    assert_search!(search::find_anything(client, "Search"), "find_anything");
+    assert_search!("Searchable", Some("person"));
+    assert_search!("Search Source", Some("source"));
+    assert_search!("citation", Some("citation"));
+    assert_search!("Birth", Some("event"));
+    assert_search!("Search Place", Some("place"));
+    assert_search!("family", Some("family"));
+    assert_search!("note", Some("note"));
+    assert_search!("SearchTag", Some("tag"));
+    assert_search!("Search Repo", Some("repository"));
+    assert_search!("search", Some("media"));
+    assert_search!("Search", None::<&str>);
 
     // Cleanup
     delete::delete_person(client, &person).await.unwrap();
