@@ -86,19 +86,31 @@ pub async fn create_repository(
 }
 
 /// Create a media record from a server-side file path (metadata only).
+///
+/// POST /api/media/ treats the request body as binary file content, so path/desc/mime
+/// cannot be set in one call. This function posts a placeholder and then PUTs the metadata.
 pub async fn create_media_from_path(
     client: &GrampsClient,
     path: &str,
     description: Option<&str>,
     mime: Option<&str>,
 ) -> Result<Handle> {
-    let body = serde_json::json!({
-        "path": path,
-        "desc": description.unwrap_or(""),
-        "mime": mime.unwrap_or(""),
-    });
-    let resp: serde_json::Value = client.post("/api/media/", &body).await?;
-    extract_handle(resp)
+    let resp: serde_json::Value = client.post("/api/media/", &serde_json::Value::Null).await?;
+    let handle = extract_handle(resp)?;
+
+    client
+        .put::<_, serde_json::Value>(
+            &format!("/api/media/{handle}"),
+            &serde_json::json!({
+                "handle": handle,
+                "path": path,
+                "desc": description.unwrap_or(""),
+                "mime": mime.unwrap_or(""),
+            }),
+        )
+        .await?;
+
+    Ok(handle)
 }
 
 /// Download a file from a URL and upload it to Gramps as a media object.

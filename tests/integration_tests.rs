@@ -360,3 +360,29 @@ async fn repository_round_trip() {
         Err(Error::NotFound(_))
     ));
 }
+
+#[tokio::test]
+async fn media_from_path_round_trip() {
+    let fixture = common::TestFixture::new().await;
+    let client = &fixture.client;
+
+    let handle = create::create_media_from_path(
+        client,
+        "/photos/test.jpg",
+        Some("Test photo"),
+        Some("image/jpeg"),
+    )
+    .await
+    .unwrap();
+
+    let media = get::get_media(client, &handle).await.unwrap();
+    assert_eq!(media["handle"].as_str(), Some(handle.as_str()));
+    assert_eq!(media["path"].as_str(), Some("/photos/test.jpg"));
+    assert_eq!(media["desc"].as_str(), Some("Test photo"));
+
+    delete::delete_media(client, &handle).await.unwrap();
+    assert!(matches!(
+        get::get_media(client, &handle).await,
+        Err(Error::NotFound(_))
+    ));
+}
