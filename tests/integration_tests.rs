@@ -206,6 +206,12 @@ async fn event_round_trip() {
     assert_eq!(event.description.as_deref(), Some("Test birth event"));
     assert!(event.event_type.is_some());
 
+    let mut body = serde_json::to_value(&event).unwrap();
+    body["description"] = serde_json::json!("Updated description");
+    update::update_event(client, &handle, &body).await.unwrap();
+    let updated = get::get_event(client, &handle).await.unwrap();
+    assert_eq!(updated.description.as_deref(), Some("Updated description"));
+
     delete::delete_event(client, &handle).await.unwrap();
     assert!(matches!(
         get::get_event(client, &handle).await,
@@ -232,6 +238,12 @@ async fn source_round_trip() {
     let source = get::get_source(client, &handle).await.unwrap();
     assert_eq!(source.title.as_deref(), Some("Vital Records 1850"));
     assert_eq!(source.author.as_deref(), Some("County Office"));
+
+    let mut body = serde_json::to_value(&source).unwrap();
+    body["title"] = serde_json::json!("Vital Records 1900");
+    update::update_source(client, &handle, &body).await.unwrap();
+    let updated = get::get_source(client, &handle).await.unwrap();
+    assert_eq!(updated.title.as_deref(), Some("Vital Records 1900"));
 
     delete::delete_source(client, &handle).await.unwrap();
     assert!(matches!(
@@ -266,6 +278,14 @@ async fn citation_links_source() {
     );
     assert_eq!(citation.page.as_deref(), Some("p. 42"));
 
+    let mut body = serde_json::to_value(&citation).unwrap();
+    body["page"] = serde_json::json!("p. 99");
+    update::update_citation(client, &citation_handle, &body)
+        .await
+        .unwrap();
+    let updated = get::get_citation(client, &citation_handle).await.unwrap();
+    assert_eq!(updated.page.as_deref(), Some("p. 99"));
+
     delete::delete_citation(client, &citation_handle)
         .await
         .unwrap();
@@ -284,6 +304,15 @@ async fn note_round_trip() {
     let note = get::get_note(client, &handle).await.unwrap();
     let text_str = note.text.as_ref().and_then(|t| t["string"].as_str());
     assert_eq!(text_str, Some("Hello from test"));
+
+    let mut body = serde_json::to_value(&note).unwrap();
+    body["text"]["string"] = serde_json::json!("Updated note text");
+    update::update_note(client, &handle, &body).await.unwrap();
+    let updated = get::get_note(client, &handle).await.unwrap();
+    assert_eq!(
+        updated.text.as_ref().and_then(|t| t["string"].as_str()),
+        Some("Updated note text")
+    );
 
     delete::delete_note(client, &handle).await.unwrap();
     assert!(matches!(
@@ -314,6 +343,12 @@ async fn place_round_trip() {
     let place = get::get_place(client, &handle).await.unwrap();
     assert_eq!(place.title.as_deref(), Some("Moscow"));
 
+    let mut body = serde_json::to_value(&place).unwrap();
+    body["title"] = serde_json::json!("Saint Petersburg");
+    update::update_place(client, &handle, &body).await.unwrap();
+    let updated = get::get_place(client, &handle).await.unwrap();
+    assert_eq!(updated.title.as_deref(), Some("Saint Petersburg"));
+
     delete::delete_place(client, &handle).await.unwrap();
     assert!(matches!(
         get::get_place(client, &handle).await,
@@ -334,6 +369,12 @@ async fn tag_round_trip() {
     assert_eq!(tag.name.as_deref(), Some("Important"));
     assert_eq!(tag.color.as_deref(), Some("#FF0000"));
 
+    let mut body = serde_json::to_value(&tag).unwrap();
+    body["color"] = serde_json::json!("#00FF00");
+    update::update_tag(client, &handle, &body).await.unwrap();
+    let updated = get::get_tag(client, &handle).await.unwrap();
+    assert_eq!(updated.color.as_deref(), Some("#00FF00"));
+
     delete::delete_tag(client, &handle).await.unwrap();
     assert!(matches!(
         get::get_tag(client, &handle).await,
@@ -353,6 +394,14 @@ async fn repository_round_trip() {
     let repo = get::get_repository(client, &handle).await.unwrap();
     assert_eq!(repo.name.as_deref(), Some("National Archives"));
     assert_eq!(repo.repo_type.as_deref(), Some("Archive"));
+
+    let mut body = serde_json::to_value(&repo).unwrap();
+    body["name"] = serde_json::json!("State Archives");
+    update::update_repository(client, &handle, &body)
+        .await
+        .unwrap();
+    let updated = get::get_repository(client, &handle).await.unwrap();
+    assert_eq!(updated.name.as_deref(), Some("State Archives"));
 
     delete::delete_repository(client, &handle).await.unwrap();
     assert!(matches!(
@@ -379,6 +428,12 @@ async fn media_from_path_round_trip() {
     assert_eq!(media["handle"].as_str(), Some(handle.as_str()));
     assert_eq!(media["path"].as_str(), Some("/photos/test.jpg"));
     assert_eq!(media["desc"].as_str(), Some("Test photo"));
+
+    let mut body = media.clone();
+    body["desc"] = serde_json::json!("Updated photo");
+    update::update_media(client, &handle, &body).await.unwrap();
+    let updated = get::get_media(client, &handle).await.unwrap();
+    assert_eq!(updated["desc"].as_str(), Some("Updated photo"));
 
     delete::delete_media(client, &handle).await.unwrap();
     assert!(matches!(
@@ -417,6 +472,12 @@ async fn media_from_url_round_trip() {
     assert_eq!(media["handle"].as_str(), Some(handle.as_str()));
     assert_eq!(media["desc"].as_str(), Some("Downloaded photo"));
     assert_eq!(media["mime"].as_str(), Some("image/jpeg"));
+
+    let mut body = media.clone();
+    body["desc"] = serde_json::json!("Updated downloaded photo");
+    update::update_media(client, &handle, &body).await.unwrap();
+    let updated = get::get_media(client, &handle).await.unwrap();
+    assert_eq!(updated["desc"].as_str(), Some("Updated downloaded photo"));
 
     delete::delete_media(client, &handle).await.unwrap();
     assert!(matches!(
