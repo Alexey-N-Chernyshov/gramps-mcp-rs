@@ -45,7 +45,7 @@ async fn get_nonexistent_returns_not_found() {
 #[tokio::test]
 async fn delete_nonexistent_returns_not_found() {
     let fixture = common::TestFixture::new().await;
-    let result = delete::delete_person(&fixture.client, "NONEXISTENT_HANDLE").await;
+    let result = delete::delete_object(&fixture.client, "people", "NONEXISTENT_HANDLE").await;
     assert!(
         matches!(result, Err(Error::NotFound(_))),
         "expected NotFound, got: {result:?}"
@@ -120,7 +120,9 @@ async fn person_lifecycle() {
         .unwrap();
     assert_eq!(updated["primary_name"]["first_name"].as_str(), Some("Petr"));
 
-    delete::delete_person(client, &handle).await.unwrap();
+    delete::delete_object(client, "people", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "people", &handle).await,
         Err(Error::NotFound(_))
@@ -191,7 +193,9 @@ async fn family_with_parents() {
         Some(new_mother.as_str()),
         "mother_handle should be updated"
     );
-    delete::delete_person(client, &new_mother).await.unwrap();
+    delete::delete_object(client, "people", &new_mother)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -251,7 +255,9 @@ async fn event_round_trip() {
         .unwrap();
     assert_eq!(updated["description"].as_str(), Some("Updated description"));
 
-    delete::delete_event(client, &handle).await.unwrap();
+    delete::delete_object(client, "events", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "events", &handle).await,
         Err(Error::NotFound(_))
@@ -288,7 +294,9 @@ async fn source_round_trip() {
         .unwrap();
     assert_eq!(updated["title"].as_str(), Some("Vital Records 1900"));
 
-    delete::delete_source(client, &handle).await.unwrap();
+    delete::delete_object(client, "sources", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "sources", &handle).await,
         Err(Error::NotFound(_))
@@ -333,10 +341,12 @@ async fn citation_links_source() {
         .unwrap();
     assert_eq!(updated["page"].as_str(), Some("p. 99"));
 
-    delete::delete_citation(client, &citation_handle)
+    delete::delete_object(client, "citations", &citation_handle)
         .await
         .unwrap();
-    delete::delete_source(client, &source_handle).await.unwrap();
+    delete::delete_object(client, "sources", &source_handle)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -364,7 +374,9 @@ async fn note_round_trip() {
         Some("Updated note text")
     );
 
-    delete::delete_note(client, &handle).await.unwrap();
+    delete::delete_object(client, "notes", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "notes", &handle).await,
         Err(Error::NotFound(_))
@@ -403,7 +415,9 @@ async fn place_round_trip() {
         .unwrap();
     assert_eq!(updated["title"].as_str(), Some("Saint Petersburg"));
 
-    delete::delete_place(client, &handle).await.unwrap();
+    delete::delete_object(client, "places", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "places", &handle).await,
         Err(Error::NotFound(_))
@@ -433,7 +447,9 @@ async fn tag_round_trip() {
         .unwrap();
     assert_eq!(updated["color"].as_str(), Some("#00FF00"));
 
-    delete::delete_tag(client, &handle).await.unwrap();
+    delete::delete_object(client, "tags", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "tags", &handle).await,
         Err(Error::NotFound(_))
@@ -465,7 +481,9 @@ async fn repository_round_trip() {
         .unwrap();
     assert_eq!(updated["name"].as_str(), Some("State Archives"));
 
-    delete::delete_repository(client, &handle).await.unwrap();
+    delete::delete_object(client, "repositories", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "repositories", &handle).await,
         Err(Error::NotFound(_))
@@ -501,7 +519,9 @@ async fn media_from_path_round_trip() {
         .unwrap();
     assert_eq!(updated["desc"].as_str(), Some("Updated photo"));
 
-    delete::delete_media(client, &handle).await.unwrap();
+    delete::delete_object(client, "media", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "media", &handle).await,
         Err(Error::NotFound(_))
@@ -548,7 +568,9 @@ async fn media_from_url_round_trip() {
         .unwrap();
     assert_eq!(updated["desc"].as_str(), Some("Updated downloaded photo"));
 
-    delete::delete_media(client, &handle).await.unwrap();
+    delete::delete_object(client, "media", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "media", &handle).await,
         Err(Error::NotFound(_))
@@ -567,7 +589,9 @@ async fn person_timeline() {
     let timeline = get::get_person_timeline(client, &handle).await.unwrap();
     assert!(timeline.is_array(), "timeline should be an array");
 
-    delete::delete_person(client, &handle).await.unwrap();
+    delete::delete_object(client, "people", &handle)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -584,7 +608,9 @@ async fn family_timeline() {
         .unwrap();
     assert!(timeline.is_array(), "timeline should be an array");
 
-    delete::delete_family(client, &family_handle).await.unwrap();
+    delete::delete_object(client, "families", &family_handle)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -619,9 +645,15 @@ async fn relations_between_parent_and_child() {
 
     get::get_relations(client, &father, &child).await.unwrap();
 
-    delete::delete_family(client, &family_handle).await.unwrap();
-    delete::delete_person(client, &father).await.unwrap();
-    delete::delete_person(client, &child).await.unwrap();
+    delete::delete_object(client, "families", &family_handle)
+        .await
+        .unwrap();
+    delete::delete_object(client, "people", &father)
+        .await
+        .unwrap();
+    delete::delete_object(client, "people", &child)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -653,8 +685,12 @@ async fn event_span_between_two_events() {
         .await
         .unwrap();
 
-    delete::delete_event(client, &handle1).await.unwrap();
-    delete::delete_event(client, &handle2).await.unwrap();
+    delete::delete_object(client, "events", &handle1)
+        .await
+        .unwrap();
+    delete::delete_object(client, "events", &handle2)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -758,16 +794,32 @@ async fn search_endpoints_return_ok() {
     assert_search!("Search", None::<&str>);
 
     // Cleanup
-    delete::delete_person(client, &person).await.unwrap();
-    delete::delete_citation(client, &citation).await.unwrap();
-    delete::delete_source(client, &source).await.unwrap();
-    delete::delete_event(client, &event).await.unwrap();
-    delete::delete_place(client, &place).await.unwrap();
-    delete::delete_family(client, &family).await.unwrap();
-    delete::delete_note(client, &note).await.unwrap();
-    delete::delete_tag(client, &tag).await.unwrap();
-    delete::delete_repository(client, &repo).await.unwrap();
-    delete::delete_media(client, &media).await.unwrap();
+    delete::delete_object(client, "people", &person)
+        .await
+        .unwrap();
+    delete::delete_object(client, "citations", &citation)
+        .await
+        .unwrap();
+    delete::delete_object(client, "sources", &source)
+        .await
+        .unwrap();
+    delete::delete_object(client, "events", &event)
+        .await
+        .unwrap();
+    delete::delete_object(client, "places", &place)
+        .await
+        .unwrap();
+    delete::delete_object(client, "families", &family)
+        .await
+        .unwrap();
+    delete::delete_object(client, "notes", &note).await.unwrap();
+    delete::delete_object(client, "tags", &tag).await.unwrap();
+    delete::delete_object(client, "repositories", &repo)
+        .await
+        .unwrap();
+    delete::delete_object(client, "media", &media)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -787,7 +839,7 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "people", &p2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_person(client, &p1).await.unwrap();
+    delete::delete_object(client, "people", &p1).await.unwrap();
 
     // merge_family
     let f1 = create::create_family(client, CreateFamilyRequest::default())
@@ -803,7 +855,9 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "families", &f2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_family(client, &f1).await.unwrap();
+    delete::delete_object(client, "families", &f1)
+        .await
+        .unwrap();
 
     // merge_event
     let e1 = create::create_event(client, CreateEventRequest::default())
@@ -817,7 +871,7 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "events", &e2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_event(client, &e1).await.unwrap();
+    delete::delete_object(client, "events", &e1).await.unwrap();
 
     // merge_place
     let pl1 = create::create_place(client, CreatePlaceRequest::default())
@@ -831,7 +885,7 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "places", &pl2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_place(client, &pl1).await.unwrap();
+    delete::delete_object(client, "places", &pl1).await.unwrap();
 
     // merge_note
     let n1 = create::create_note(client, "note one", None).await.unwrap();
@@ -841,7 +895,7 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "notes", &n2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_note(client, &n1).await.unwrap();
+    delete::delete_object(client, "notes", &n1).await.unwrap();
 
     // merge_source + merge_citation + merge_repository
     let src1 = create::create_source(
@@ -870,14 +924,18 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "citations", &c2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_citation(client, &c1).await.unwrap();
+    delete::delete_object(client, "citations", &c1)
+        .await
+        .unwrap();
 
     merge::merge_source(client, &src1, &src2).await.unwrap();
     assert!(matches!(
         get::get_object_by_handle(client, "sources", &src2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_source(client, &src1).await.unwrap();
+    delete::delete_object(client, "sources", &src1)
+        .await
+        .unwrap();
 
     let r1 = create::create_repository(client, "Repo One", None)
         .await
@@ -890,7 +948,9 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "repositories", &r2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_repository(client, &r1).await.unwrap();
+    delete::delete_object(client, "repositories", &r1)
+        .await
+        .unwrap();
 
     // merge_media
     let m1 = create::create_media_from_path(client, "/tmp/a.jpg", None, None)
@@ -904,5 +964,5 @@ async fn merge_operations() {
         get::get_object_by_handle(client, "media", &m2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_media(client, &m1).await.unwrap();
+    delete::delete_object(client, "media", &m1).await.unwrap();
 }

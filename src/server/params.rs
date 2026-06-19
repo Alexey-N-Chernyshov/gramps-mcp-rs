@@ -64,6 +64,12 @@ pub struct HandleInput {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct DeleteObjectInput {
+    pub object_type: ObjectType,
+    pub handle: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct CreatePersonInput {
     pub first_name: Option<String>,
     pub surname: Option<String>,

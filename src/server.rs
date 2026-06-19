@@ -8,8 +8,8 @@ use crate::{
 use params::{
     CreateCitationInput, CreateEventInput, CreateFamilyInput, CreateMediaInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
-    GetObjectInput, HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput,
-    SearchInput, UpdateInput,
+    DeleteObjectInput, GetObjectInput, HandleInput, HandlePairInput, MergeFamilyInput, MergeInput,
+    MergePersonInput, SearchInput, UpdateInput,
 };
 use rmcp::{
     handler::server::{
@@ -69,16 +69,7 @@ const WRITE_TOOLS: &[&str] = &[
     "update_repository",
     "update_source",
     "update_tag",
-    "delete_citation",
-    "delete_event",
-    "delete_family",
-    "delete_media",
-    "delete_note",
-    "delete_person",
-    "delete_place",
-    "delete_repository",
-    "delete_source",
-    "delete_tag",
+    "delete_object",
     "merge_citation",
     "merge_event",
     "merge_family",
@@ -580,142 +571,20 @@ For name/text search use the `search` tool instead.")]
 
     // ── Delete ──────────────────────────────────────────────────────────────
 
-    #[tool(description = "Delete a person by handle")]
-    async fn delete_person(
+    #[tool(description = "Delete an object by handle")]
+    async fn delete_object(
         &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
+        Parameters(DeleteObjectInput {
+            object_type,
+            handle,
+        }): Parameters<DeleteObjectInput>,
     ) -> Result<CallToolResult, McpError> {
-        delete::delete_person(&self.client, &handle)
+        delete::delete_object(&self.client, object_type.as_endpoint(), &handle)
             .await
             .map_or_else(api_err, |_| {
                 Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted person {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a family by handle")]
-    async fn delete_family(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_family(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted family {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete an event by handle")]
-    async fn delete_event(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_event(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted event {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a place by handle")]
-    async fn delete_place(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_place(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted place {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a source by handle")]
-    async fn delete_source(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_source(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted source {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a citation by handle")]
-    async fn delete_citation(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_citation(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted citation {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a repository by handle")]
-    async fn delete_repository(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_repository(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted repository {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a note by handle")]
-    async fn delete_note(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_note(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted note {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a tag by handle")]
-    async fn delete_tag(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_tag(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted tag {handle}"
-                ))]))
-            })
-    }
-
-    #[tool(description = "Delete a media object by handle")]
-    async fn delete_media(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_media(&self.client, &handle)
-            .await
-            .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted media {handle}"
+                    "Deleted {} {handle}",
+                    object_type.as_str()
                 ))]))
             })
     }
