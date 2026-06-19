@@ -35,7 +35,7 @@ async fn auth_fails_with_wrong_password() {
 #[tokio::test]
 async fn get_nonexistent_returns_not_found() {
     let fixture = common::TestFixture::new().await;
-    let result = get::get_person(&fixture.client, "NONEXISTENT_HANDLE").await;
+    let result = get::get_object_by_handle(&fixture.client, "people", "NONEXISTENT_HANDLE").await;
     assert!(
         matches!(result, Err(Error::NotFound(_))),
         "expected NotFound, got: {result:?}"
@@ -45,7 +45,7 @@ async fn get_nonexistent_returns_not_found() {
 #[tokio::test]
 async fn delete_nonexistent_returns_not_found() {
     let fixture = common::TestFixture::new().await;
-    let result = delete::delete_person(&fixture.client, "NONEXISTENT_HANDLE").await;
+    let result = delete::delete_object(&fixture.client, "people", "NONEXISTENT_HANDLE").await;
     assert!(
         matches!(result, Err(Error::NotFound(_))),
         "expected NotFound, got: {result:?}"
@@ -75,12 +75,11 @@ async fn create_and_get_person_round_trip() {
     .await
     .unwrap();
 
-    let person = get::get_person(&fixture.client, &handle).await.unwrap();
-    assert_eq!(person.handle, handle);
-    assert_eq!(
-        person.primary_name.unwrap().first_name.as_deref(),
-        Some("Ivan")
-    );
+    let person = get::get_object_by_handle(&fixture.client, "people", &handle)
+        .await
+        .unwrap();
+    assert_eq!(person["handle"].as_str(), Some(handle.as_str()));
+    assert_eq!(person["primary_name"]["first_name"].as_str(), Some("Ivan"));
 }
 
 #[tokio::test]
@@ -107,25 +106,25 @@ async fn person_lifecycle() {
     .await
     .unwrap();
 
-    let person = get::get_person(client, &handle).await.unwrap();
-    assert_eq!(
-        person.primary_name.as_ref().unwrap().first_name.as_deref(),
-        Some("Ivan")
-    );
+    let person = get::get_object_by_handle(client, "people", &handle)
+        .await
+        .unwrap();
+    assert_eq!(person["primary_name"]["first_name"].as_str(), Some("Ivan"));
 
-    let mut body = serde_json::to_value(&person).unwrap();
+    let mut body = person.clone();
     body["primary_name"]["first_name"] = serde_json::json!("Petr");
     update::update_person(client, &handle, &body).await.unwrap();
 
-    let updated = get::get_person(client, &handle).await.unwrap();
-    assert_eq!(
-        updated.primary_name.unwrap().first_name.as_deref(),
-        Some("Petr")
-    );
+    let updated = get::get_object_by_handle(client, "people", &handle)
+        .await
+        .unwrap();
+    assert_eq!(updated["primary_name"]["first_name"].as_str(), Some("Petr"));
 
-    delete::delete_person(client, &handle).await.unwrap();
+    delete::delete_object(client, "people", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_person(client, &handle).await,
+        get::get_object_by_handle(client, "people", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -166,11 +165,12 @@ async fn family_with_parents() {
     .await
     .unwrap();
 
-    let family = get::get_family(client, &family_handle).await.unwrap();
-    assert_eq!(family.father_handle.as_deref(), Some(father.as_str()));
-    assert_eq!(family.mother_handle.as_deref(), Some(mother.as_str()));
+    let family = get::get_object_by_handle(client, "families", &family_handle)
+        .await
+        .unwrap();
+    assert_eq!(family["father_handle"].as_str(), Some(father.as_str()));
+    assert_eq!(family["mother_handle"].as_str(), Some(mother.as_str()));
 
-    // update: replace mother with a new person
     let new_mother = create::create_person(
         client,
         CreatePersonRequest {
@@ -180,18 +180,22 @@ async fn family_with_parents() {
     )
     .await
     .unwrap();
-    let mut body = serde_json::to_value(&family).unwrap();
+    let mut body = family.clone();
     body["mother_handle"] = serde_json::json!(new_mother);
     update::update_family(client, &family_handle, &body)
         .await
         .unwrap();
-    let updated = get::get_family(client, &family_handle).await.unwrap();
+    let updated = get::get_object_by_handle(client, "families", &family_handle)
+        .await
+        .unwrap();
     assert_eq!(
-        updated.mother_handle.as_deref(),
+        updated["mother_handle"].as_str(),
         Some(new_mother.as_str()),
         "mother_handle should be updated"
     );
-    delete::delete_person(client, &new_mother).await.unwrap();
+    delete::delete_object(client, "people", &new_mother)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -213,10 +217,12 @@ async fn family_with_child() {
     .await
     .unwrap();
 
-    let family = get::get_family(client, &family_handle).await.unwrap();
-    let children = family.child_ref_list.unwrap();
+    let family = get::get_object_by_handle(client, "families", &family_handle)
+        .await
+        .unwrap();
+    let children = family["child_ref_list"].as_array().unwrap();
     assert_eq!(children.len(), 1);
-    assert_eq!(children[0].ref_handle.as_deref(), Some(child.as_str()));
+    assert_eq!(children[0]["ref"].as_str(), Some(child.as_str()));
 }
 
 #[tokio::test]
@@ -235,19 +241,25 @@ async fn event_round_trip() {
     .await
     .unwrap();
 
-    let event = get::get_event(client, &handle).await.unwrap();
-    assert_eq!(event.description.as_deref(), Some("Test birth event"));
-    assert!(event.event_type.is_some());
+    let event = get::get_object_by_handle(client, "events", &handle)
+        .await
+        .unwrap();
+    assert_eq!(event["description"].as_str(), Some("Test birth event"));
+    assert!(!event["type"].is_null());
 
-    let mut body = serde_json::to_value(&event).unwrap();
+    let mut body = event.clone();
     body["description"] = serde_json::json!("Updated description");
     update::update_event(client, &handle, &body).await.unwrap();
-    let updated = get::get_event(client, &handle).await.unwrap();
-    assert_eq!(updated.description.as_deref(), Some("Updated description"));
+    let updated = get::get_object_by_handle(client, "events", &handle)
+        .await
+        .unwrap();
+    assert_eq!(updated["description"].as_str(), Some("Updated description"));
 
-    delete::delete_event(client, &handle).await.unwrap();
+    delete::delete_object(client, "events", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_event(client, &handle).await,
+        get::get_object_by_handle(client, "events", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -268,19 +280,25 @@ async fn source_round_trip() {
     .await
     .unwrap();
 
-    let source = get::get_source(client, &handle).await.unwrap();
-    assert_eq!(source.title.as_deref(), Some("Vital Records 1850"));
-    assert_eq!(source.author.as_deref(), Some("County Office"));
+    let source = get::get_object_by_handle(client, "sources", &handle)
+        .await
+        .unwrap();
+    assert_eq!(source["title"].as_str(), Some("Vital Records 1850"));
+    assert_eq!(source["author"].as_str(), Some("County Office"));
 
-    let mut body = serde_json::to_value(&source).unwrap();
+    let mut body = source.clone();
     body["title"] = serde_json::json!("Vital Records 1900");
     update::update_source(client, &handle, &body).await.unwrap();
-    let updated = get::get_source(client, &handle).await.unwrap();
-    assert_eq!(updated.title.as_deref(), Some("Vital Records 1900"));
+    let updated = get::get_object_by_handle(client, "sources", &handle)
+        .await
+        .unwrap();
+    assert_eq!(updated["title"].as_str(), Some("Vital Records 1900"));
 
-    delete::delete_source(client, &handle).await.unwrap();
+    delete::delete_object(client, "sources", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_source(client, &handle).await,
+        get::get_object_by_handle(client, "sources", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -304,25 +322,31 @@ async fn citation_links_source() {
         .await
         .unwrap();
 
-    let citation = get::get_citation(client, &citation_handle).await.unwrap();
+    let citation = get::get_object_by_handle(client, "citations", &citation_handle)
+        .await
+        .unwrap();
     assert_eq!(
-        citation.source_handle.as_deref(),
+        citation["source_handle"].as_str(),
         Some(source_handle.as_str())
     );
-    assert_eq!(citation.page.as_deref(), Some("p. 42"));
+    assert_eq!(citation["page"].as_str(), Some("p. 42"));
 
-    let mut body = serde_json::to_value(&citation).unwrap();
+    let mut body = citation.clone();
     body["page"] = serde_json::json!("p. 99");
     update::update_citation(client, &citation_handle, &body)
         .await
         .unwrap();
-    let updated = get::get_citation(client, &citation_handle).await.unwrap();
-    assert_eq!(updated.page.as_deref(), Some("p. 99"));
-
-    delete::delete_citation(client, &citation_handle)
+    let updated = get::get_object_by_handle(client, "citations", &citation_handle)
         .await
         .unwrap();
-    delete::delete_source(client, &source_handle).await.unwrap();
+    assert_eq!(updated["page"].as_str(), Some("p. 99"));
+
+    delete::delete_object(client, "citations", &citation_handle)
+        .await
+        .unwrap();
+    delete::delete_object(client, "sources", &source_handle)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -334,22 +358,27 @@ async fn note_round_trip() {
         .await
         .unwrap();
 
-    let note = get::get_note(client, &handle).await.unwrap();
-    let text_str = note.text.as_ref().and_then(|t| t["string"].as_str());
-    assert_eq!(text_str, Some("Hello from test"));
+    let note = get::get_object_by_handle(client, "notes", &handle)
+        .await
+        .unwrap();
+    assert_eq!(note["text"]["string"].as_str(), Some("Hello from test"));
 
-    let mut body = serde_json::to_value(&note).unwrap();
+    let mut body = note.clone();
     body["text"]["string"] = serde_json::json!("Updated note text");
     update::update_note(client, &handle, &body).await.unwrap();
-    let updated = get::get_note(client, &handle).await.unwrap();
+    let updated = get::get_object_by_handle(client, "notes", &handle)
+        .await
+        .unwrap();
     assert_eq!(
-        updated.text.as_ref().and_then(|t| t["string"].as_str()),
+        updated["text"]["string"].as_str(),
         Some("Updated note text")
     );
 
-    delete::delete_note(client, &handle).await.unwrap();
+    delete::delete_object(client, "notes", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_note(client, &handle).await,
+        get::get_object_by_handle(client, "notes", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -373,18 +402,24 @@ async fn place_round_trip() {
     .await
     .unwrap();
 
-    let place = get::get_place(client, &handle).await.unwrap();
-    assert_eq!(place.title.as_deref(), Some("Moscow"));
+    let place = get::get_object_by_handle(client, "places", &handle)
+        .await
+        .unwrap();
+    assert_eq!(place["title"].as_str(), Some("Moscow"));
 
-    let mut body = serde_json::to_value(&place).unwrap();
+    let mut body = place.clone();
     body["title"] = serde_json::json!("Saint Petersburg");
     update::update_place(client, &handle, &body).await.unwrap();
-    let updated = get::get_place(client, &handle).await.unwrap();
-    assert_eq!(updated.title.as_deref(), Some("Saint Petersburg"));
+    let updated = get::get_object_by_handle(client, "places", &handle)
+        .await
+        .unwrap();
+    assert_eq!(updated["title"].as_str(), Some("Saint Petersburg"));
 
-    delete::delete_place(client, &handle).await.unwrap();
+    delete::delete_object(client, "places", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_place(client, &handle).await,
+        get::get_object_by_handle(client, "places", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -398,19 +433,25 @@ async fn tag_round_trip() {
         .await
         .unwrap();
 
-    let tag = get::get_tag(client, &handle).await.unwrap();
-    assert_eq!(tag.name.as_deref(), Some("Important"));
-    assert_eq!(tag.color.as_deref(), Some("#FF0000"));
+    let tag = get::get_object_by_handle(client, "tags", &handle)
+        .await
+        .unwrap();
+    assert_eq!(tag["name"].as_str(), Some("Important"));
+    assert_eq!(tag["color"].as_str(), Some("#FF0000"));
 
-    let mut body = serde_json::to_value(&tag).unwrap();
+    let mut body = tag.clone();
     body["color"] = serde_json::json!("#00FF00");
     update::update_tag(client, &handle, &body).await.unwrap();
-    let updated = get::get_tag(client, &handle).await.unwrap();
-    assert_eq!(updated.color.as_deref(), Some("#00FF00"));
+    let updated = get::get_object_by_handle(client, "tags", &handle)
+        .await
+        .unwrap();
+    assert_eq!(updated["color"].as_str(), Some("#00FF00"));
 
-    delete::delete_tag(client, &handle).await.unwrap();
+    delete::delete_object(client, "tags", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_tag(client, &handle).await,
+        get::get_object_by_handle(client, "tags", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -424,21 +465,27 @@ async fn repository_round_trip() {
         .await
         .unwrap();
 
-    let repo = get::get_repository(client, &handle).await.unwrap();
-    assert_eq!(repo.name.as_deref(), Some("National Archives"));
-    assert_eq!(repo.repo_type.as_deref(), Some("Archive"));
+    let repo = get::get_object_by_handle(client, "repositories", &handle)
+        .await
+        .unwrap();
+    assert_eq!(repo["name"].as_str(), Some("National Archives"));
+    assert_eq!(repo["type"].as_str(), Some("Archive"));
 
-    let mut body = serde_json::to_value(&repo).unwrap();
+    let mut body = repo.clone();
     body["name"] = serde_json::json!("State Archives");
     update::update_repository(client, &handle, &body)
         .await
         .unwrap();
-    let updated = get::get_repository(client, &handle).await.unwrap();
-    assert_eq!(updated.name.as_deref(), Some("State Archives"));
+    let updated = get::get_object_by_handle(client, "repositories", &handle)
+        .await
+        .unwrap();
+    assert_eq!(updated["name"].as_str(), Some("State Archives"));
 
-    delete::delete_repository(client, &handle).await.unwrap();
+    delete::delete_object(client, "repositories", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_repository(client, &handle).await,
+        get::get_object_by_handle(client, "repositories", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -457,7 +504,9 @@ async fn media_from_path_round_trip() {
     .await
     .unwrap();
 
-    let media = get::get_media(client, &handle).await.unwrap();
+    let media = get::get_object_by_handle(client, "media", &handle)
+        .await
+        .unwrap();
     assert_eq!(media["handle"].as_str(), Some(handle.as_str()));
     assert_eq!(media["path"].as_str(), Some("/photos/test.jpg"));
     assert_eq!(media["desc"].as_str(), Some("Test photo"));
@@ -465,12 +514,16 @@ async fn media_from_path_round_trip() {
     let mut body = media.clone();
     body["desc"] = serde_json::json!("Updated photo");
     update::update_media(client, &handle, &body).await.unwrap();
-    let updated = get::get_media(client, &handle).await.unwrap();
+    let updated = get::get_object_by_handle(client, "media", &handle)
+        .await
+        .unwrap();
     assert_eq!(updated["desc"].as_str(), Some("Updated photo"));
 
-    delete::delete_media(client, &handle).await.unwrap();
+    delete::delete_object(client, "media", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_media(client, &handle).await,
+        get::get_object_by_handle(client, "media", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -482,7 +535,6 @@ async fn media_from_url_round_trip() {
     let fixture = common::TestFixture::new().await;
     let client = &fixture.client;
 
-    // Serve a tiny JPEG locally — no external deps, guaranteed non-empty response
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let file_url = format!("http://127.0.0.1:{port}/photo.jpg");
@@ -501,7 +553,9 @@ async fn media_from_url_round_trip() {
         .await
         .unwrap();
 
-    let media = get::get_media(client, &handle).await.unwrap();
+    let media = get::get_object_by_handle(client, "media", &handle)
+        .await
+        .unwrap();
     assert_eq!(media["handle"].as_str(), Some(handle.as_str()));
     assert_eq!(media["desc"].as_str(), Some("Downloaded photo"));
     assert_eq!(media["mime"].as_str(), Some("image/jpeg"));
@@ -509,12 +563,16 @@ async fn media_from_url_round_trip() {
     let mut body = media.clone();
     body["desc"] = serde_json::json!("Updated downloaded photo");
     update::update_media(client, &handle, &body).await.unwrap();
-    let updated = get::get_media(client, &handle).await.unwrap();
+    let updated = get::get_object_by_handle(client, "media", &handle)
+        .await
+        .unwrap();
     assert_eq!(updated["desc"].as_str(), Some("Updated downloaded photo"));
 
-    delete::delete_media(client, &handle).await.unwrap();
+    delete::delete_object(client, "media", &handle)
+        .await
+        .unwrap();
     assert!(matches!(
-        get::get_media(client, &handle).await,
+        get::get_object_by_handle(client, "media", &handle).await,
         Err(Error::NotFound(_))
     ));
 }
@@ -531,7 +589,9 @@ async fn person_timeline() {
     let timeline = get::get_person_timeline(client, &handle).await.unwrap();
     assert!(timeline.is_array(), "timeline should be an array");
 
-    delete::delete_person(client, &handle).await.unwrap();
+    delete::delete_object(client, "people", &handle)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -548,7 +608,9 @@ async fn family_timeline() {
         .unwrap();
     assert!(timeline.is_array(), "timeline should be an array");
 
-    delete::delete_family(client, &family_handle).await.unwrap();
+    delete::delete_object(client, "families", &family_handle)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -581,12 +643,17 @@ async fn relations_between_parent_and_child() {
     .await
     .unwrap();
 
-    // The endpoint returns an object (or null) when no path is found, not necessarily an array.
     get::get_relations(client, &father, &child).await.unwrap();
 
-    delete::delete_family(client, &family_handle).await.unwrap();
-    delete::delete_person(client, &father).await.unwrap();
-    delete::delete_person(client, &child).await.unwrap();
+    delete::delete_object(client, "families", &family_handle)
+        .await
+        .unwrap();
+    delete::delete_object(client, "people", &father)
+        .await
+        .unwrap();
+    delete::delete_object(client, "people", &child)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -618,8 +685,12 @@ async fn event_span_between_two_events() {
         .await
         .unwrap();
 
-    delete::delete_event(client, &handle1).await.unwrap();
-    delete::delete_event(client, &handle2).await.unwrap();
+    delete::delete_object(client, "events", &handle1)
+        .await
+        .unwrap();
+    delete::delete_object(client, "events", &handle2)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -627,7 +698,6 @@ async fn search_endpoints_return_ok() {
     let fixture = common::TestFixture::new().await;
     let client = &fixture.client;
 
-    // Create one object of each searchable type so the index is non-empty
     let person = create::create_person(
         client,
         CreatePersonRequest {
@@ -695,41 +765,113 @@ async fn search_endpoints_return_ok() {
         .await
         .unwrap();
 
-    // Each find_* endpoint must be reachable (Ok) and return a JSON array.
+    // Each type must be reachable and return a JSON array.
     // If a type is not yet indexed, the server returns Ok([]) — still valid.
     macro_rules! assert_search {
-        ($call:expr, $name:literal) => {
-            let r = $call.await.expect(concat!($name, " failed"));
-            assert!(r.is_array(), concat!($name, " should return an array"));
+        ($query:expr, $type:expr) => {
+            let r = search::search(client, $query, $type)
+                .await
+                .unwrap_or_else(|e| panic!("search({:?}, {:?}) failed: {e}", $query, $type));
+            assert!(
+                r.is_array(),
+                "search({:?}, {:?}) should return an array",
+                $query,
+                $type
+            );
         };
     }
 
-    assert_search!(search::find_person(client, "Searchable"), "find_person");
-    assert_search!(search::find_source(client, "Search Source"), "find_source");
-    assert_search!(search::find_citation(client, "citation"), "find_citation");
-    assert_search!(search::find_event(client, "Birth"), "find_event");
-    assert_search!(search::find_place(client, "Search Place"), "find_place");
-    assert_search!(search::find_family(client, "family"), "find_family");
-    assert_search!(search::find_note(client, "note"), "find_note");
-    assert_search!(search::find_tag(client, "SearchTag"), "find_tag");
-    assert_search!(
-        search::find_repository(client, "Search Repo"),
-        "find_repository"
-    );
-    assert_search!(search::find_media(client, "search"), "find_media");
-    assert_search!(search::find_anything(client, "Search"), "find_anything");
+    assert_search!("Searchable", Some("person"));
+    assert_search!("Search Source", Some("source"));
+    assert_search!("citation", Some("citation"));
+    assert_search!("Birth", Some("event"));
+    assert_search!("Search Place", Some("place"));
+    assert_search!("family", Some("family"));
+    assert_search!("note", Some("note"));
+    assert_search!("SearchTag", Some("tag"));
+    assert_search!("Search Repo", Some("repository"));
+    assert_search!("search", Some("media"));
+    assert_search!("Search", None::<&str>);
 
     // Cleanup
-    delete::delete_person(client, &person).await.unwrap();
-    delete::delete_citation(client, &citation).await.unwrap();
-    delete::delete_source(client, &source).await.unwrap();
-    delete::delete_event(client, &event).await.unwrap();
-    delete::delete_place(client, &place).await.unwrap();
-    delete::delete_family(client, &family).await.unwrap();
-    delete::delete_note(client, &note).await.unwrap();
-    delete::delete_tag(client, &tag).await.unwrap();
-    delete::delete_repository(client, &repo).await.unwrap();
-    delete::delete_media(client, &media).await.unwrap();
+    delete::delete_object(client, "people", &person)
+        .await
+        .unwrap();
+    delete::delete_object(client, "citations", &citation)
+        .await
+        .unwrap();
+    delete::delete_object(client, "sources", &source)
+        .await
+        .unwrap();
+    delete::delete_object(client, "events", &event)
+        .await
+        .unwrap();
+    delete::delete_object(client, "places", &place)
+        .await
+        .unwrap();
+    delete::delete_object(client, "families", &family)
+        .await
+        .unwrap();
+    delete::delete_object(client, "notes", &note).await.unwrap();
+    delete::delete_object(client, "tags", &tag).await.unwrap();
+    delete::delete_object(client, "repositories", &repo)
+        .await
+        .unwrap();
+    delete::delete_object(client, "media", &media)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn get_object_collection_pagination_and_gramps_id() {
+    let fixture = common::TestFixture::new().await;
+    let client = &fixture.client;
+
+    let h1 = create::create_person(client, CreatePersonRequest::default())
+        .await
+        .unwrap();
+    let h2 = create::create_person(client, CreatePersonRequest::default())
+        .await
+        .unwrap();
+
+    // plain collection browse returns an array
+    let all = get::get_object_collection(client, "people", None, None, None)
+        .await
+        .unwrap();
+    assert!(
+        all.is_array(),
+        "collection without params should be an array"
+    );
+
+    // pagination: page=1 pagesize=1 must return at most 1 item
+    let page1 = get::get_object_collection(client, "people", None, Some(1), Some(1))
+        .await
+        .unwrap();
+    assert!(page1.is_array());
+    assert!(
+        page1.as_array().unwrap().len() <= 1,
+        "pagesize=1 should return at most 1 item"
+    );
+
+    // gramps_id lookup: fetch the gramps_id of h1 then query by it
+    let obj = get::get_object_by_handle(client, "people", &h1)
+        .await
+        .unwrap();
+    let gramps_id = obj["gramps_id"].as_str().expect("gramps_id missing");
+    let by_id = get::get_object_collection(client, "people", Some(gramps_id), None, None)
+        .await
+        .unwrap();
+    assert!(by_id.is_array());
+    let items = by_id.as_array().unwrap();
+    assert_eq!(
+        items.len(),
+        1,
+        "gramps_id lookup should return exactly 1 item"
+    );
+    assert_eq!(items[0]["handle"].as_str(), Some(h1.as_str()));
+
+    delete::delete_object(client, "people", &h1).await.unwrap();
+    delete::delete_object(client, "people", &h2).await.unwrap();
 }
 
 #[tokio::test]
@@ -746,10 +888,10 @@ async fn merge_operations() {
         .unwrap();
     merge::merge_person(client, &p1, &p2, false).await.unwrap();
     assert!(matches!(
-        get::get_person(client, &p2).await,
+        get::get_object_by_handle(client, "people", &p2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_person(client, &p1).await.unwrap();
+    delete::delete_object(client, "people", &p1).await.unwrap();
 
     // merge_family
     let f1 = create::create_family(client, CreateFamilyRequest::default())
@@ -762,10 +904,12 @@ async fn merge_operations() {
         .await
         .unwrap();
     assert!(matches!(
-        get::get_family(client, &f2).await,
+        get::get_object_by_handle(client, "families", &f2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_family(client, &f1).await.unwrap();
+    delete::delete_object(client, "families", &f1)
+        .await
+        .unwrap();
 
     // merge_event
     let e1 = create::create_event(client, CreateEventRequest::default())
@@ -776,10 +920,10 @@ async fn merge_operations() {
         .unwrap();
     merge::merge_event(client, &e1, &e2).await.unwrap();
     assert!(matches!(
-        get::get_event(client, &e2).await,
+        get::get_object_by_handle(client, "events", &e2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_event(client, &e1).await.unwrap();
+    delete::delete_object(client, "events", &e1).await.unwrap();
 
     // merge_place
     let pl1 = create::create_place(client, CreatePlaceRequest::default())
@@ -790,22 +934,22 @@ async fn merge_operations() {
         .unwrap();
     merge::merge_place(client, &pl1, &pl2).await.unwrap();
     assert!(matches!(
-        get::get_place(client, &pl2).await,
+        get::get_object_by_handle(client, "places", &pl2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_place(client, &pl1).await.unwrap();
+    delete::delete_object(client, "places", &pl1).await.unwrap();
 
     // merge_note
     let n1 = create::create_note(client, "note one", None).await.unwrap();
     let n2 = create::create_note(client, "note two", None).await.unwrap();
     merge::merge_note(client, &n1, &n2).await.unwrap();
     assert!(matches!(
-        get::get_note(client, &n2).await,
+        get::get_object_by_handle(client, "notes", &n2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_note(client, &n1).await.unwrap();
+    delete::delete_object(client, "notes", &n1).await.unwrap();
 
-    // merge_source + merge_citation + merge_repository (need source first)
+    // merge_source + merge_citation + merge_repository
     let src1 = create::create_source(
         client,
         CreateSourceRequest {
@@ -829,17 +973,21 @@ async fn merge_operations() {
     let c2 = create::create_citation(client, &src2, None).await.unwrap();
     merge::merge_citation(client, &c1, &c2).await.unwrap();
     assert!(matches!(
-        get::get_citation(client, &c2).await,
+        get::get_object_by_handle(client, "citations", &c2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_citation(client, &c1).await.unwrap();
+    delete::delete_object(client, "citations", &c1)
+        .await
+        .unwrap();
 
     merge::merge_source(client, &src1, &src2).await.unwrap();
     assert!(matches!(
-        get::get_source(client, &src2).await,
+        get::get_object_by_handle(client, "sources", &src2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_source(client, &src1).await.unwrap();
+    delete::delete_object(client, "sources", &src1)
+        .await
+        .unwrap();
 
     let r1 = create::create_repository(client, "Repo One", None)
         .await
@@ -849,10 +997,12 @@ async fn merge_operations() {
         .unwrap();
     merge::merge_repository(client, &r1, &r2).await.unwrap();
     assert!(matches!(
-        get::get_repository(client, &r2).await,
+        get::get_object_by_handle(client, "repositories", &r2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_repository(client, &r1).await.unwrap();
+    delete::delete_object(client, "repositories", &r1)
+        .await
+        .unwrap();
 
     // merge_media
     let m1 = create::create_media_from_path(client, "/tmp/a.jpg", None, None)
@@ -863,8 +1013,8 @@ async fn merge_operations() {
         .unwrap();
     merge::merge_media(client, &m1, &m2).await.unwrap();
     assert!(matches!(
-        get::get_media(client, &m2).await,
+        get::get_object_by_handle(client, "media", &m2).await,
         Err(Error::NotFound(_))
     ));
-    delete::delete_media(client, &m1).await.unwrap();
+    delete::delete_object(client, "media", &m1).await.unwrap();
 }

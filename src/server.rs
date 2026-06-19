@@ -8,8 +8,8 @@ use crate::{
 use params::{
     CreateCitationInput, CreateEventInput, CreateFamilyInput, CreateMediaInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
-    HandleInput, HandlePairInput, MergeFamilyInput, MergeInput, MergePersonInput, QueryInput,
-    UpdateInput,
+    DeleteObjectInput, GetObjectInput, HandleInput, HandlePairInput, MergeFamilyInput, MergeInput,
+    MergePersonInput, SearchInput, UpdateInput,
 };
 use rmcp::{
     handler::server::{
@@ -17,8 +17,9 @@ use rmcp::{
         wrapper::Parameters,
     },
     model::{
-        CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResult, Content, ErrorCode, Implementation,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
+        ReadResourceResult, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
@@ -68,16 +69,7 @@ const WRITE_TOOLS: &[&str] = &[
     "update_repository",
     "update_source",
     "update_tag",
-    "delete_citation",
-    "delete_event",
-    "delete_family",
-    "delete_media",
-    "delete_note",
-    "delete_person",
-    "delete_place",
-    "delete_repository",
-    "delete_source",
-    "delete_tag",
+    "delete_object",
     "merge_citation",
     "merge_event",
     "merge_family",
@@ -89,262 +81,60 @@ const WRITE_TOOLS: &[&str] = &[
     "merge_source",
 ];
 
+fn ok_json(v: serde_json::Value) -> Result<CallToolResult, McpError> {
+    let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+    Ok(CallToolResult::success(vec![Content::text(text)]))
+}
+
+fn api_err(e: impl std::fmt::Display) -> Result<CallToolResult, McpError> {
+    Ok(CallToolResult::error(vec![Content::text(e.to_string())]))
+}
+
 #[tool_router]
 impl GrampsMcpServer {
     // ── Search ──────────────────────────────────────────────────────────────
 
-    #[tool(description = "Search for people in the genealogy database")]
-    async fn find_person(
+    #[tool(description = "\
+Full-text search across the genealogy database. \
+Set object_type to narrow results to a specific type, or omit to search across all types.")]
+    async fn search(
         &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
+        Parameters(SearchInput { query, object_type }): Parameters<SearchInput>,
     ) -> Result<CallToolResult, McpError> {
-        let items = search::find_person(&self.client, &query)
+        search::search(&self.client, &query, object_type.map(|t| t.as_str()))
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for families in the genealogy database")]
-    async fn find_family(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_family(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for events in the genealogy database")]
-    async fn find_event(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_event(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for places in the genealogy database")]
-    async fn find_place(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_place(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for notes in the genealogy database")]
-    async fn find_note(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_note(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for tags in the genealogy database")]
-    async fn find_tag(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_tag(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for citations in the genealogy database")]
-    async fn find_citation(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_citation(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for media objects in the genealogy database")]
-    async fn find_media(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_media(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for repositories in the genealogy database")]
-    async fn find_repository(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_repository(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Search for sources in the genealogy database")]
-    async fn find_source(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let items = search::find_source(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Full-text search across all genealogy object types")]
-    async fn find_anything(
-        &self,
-        Parameters(QueryInput { query }): Parameters<QueryInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let result = search::find_anything(&self.client, &query)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     // ── Get ─────────────────────────────────────────────────────────────────
 
-    #[tool(description = "Get full details for a person by handle")]
-    async fn get_person(
+    #[tool(description = "\
+Get genealogy objects. \
+Provide `handle` for a single record, or `gramps_id`/`page`/`pagesize` to browse a collection. \
+For name/text search use the `search` tool instead.")]
+    async fn get_object(
         &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
+        Parameters(GetObjectInput {
+            object_type,
+            handle,
+            gramps_id,
+            page,
+            pagesize,
+        }): Parameters<GetObjectInput>,
     ) -> Result<CallToolResult, McpError> {
-        let person = get::get_person(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&person).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a family by handle")]
-    async fn get_family(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let family = get::get_family(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&family).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for an event by handle")]
-    async fn get_event(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_event(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a place by handle")]
-    async fn get_place(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_place(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a citation by handle")]
-    async fn get_citation(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_citation(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a note by handle")]
-    async fn get_note(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_note(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a media object by handle")]
-    async fn get_media(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_media(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a repository by handle")]
-    async fn get_repository(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_repository(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a tag by handle")]
-    async fn get_tag(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_tag(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
-    }
-
-    #[tool(description = "Get full details for a source by handle")]
-    async fn get_source(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        let item = get::get_source(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        let endpoint = object_type.as_endpoint();
+        let result = if let Some(h) = handle {
+            get::get_object_by_handle(&self.client, endpoint, &h).await
+        } else if gramps_id.is_some() || page.is_some() || pagesize.is_some() {
+            get::get_object_collection(&self.client, endpoint, gramps_id.as_deref(), page, pagesize)
+                .await
+        } else {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Provide `handle` for a single object, \
+                 or `gramps_id` / `page` / `pagesize` to browse a collection.",
+            )]));
+        };
+        result.map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get the most direct relationship path between two people")]
@@ -352,11 +142,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(HandlePairInput { handle1, handle2 }): Parameters<HandlePairInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_relations(&self.client, &handle1, &handle2)
+        get::get_relations(&self.client, &handle1, &handle2)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get chronological event timeline for a person")]
@@ -364,11 +152,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(HandleInput { handle }): Parameters<HandleInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_person_timeline(&self.client, &handle)
+        get::get_person_timeline(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get chronological event timeline for a family")]
@@ -376,11 +162,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(HandleInput { handle }): Parameters<HandleInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_family_timeline(&self.client, &handle)
+        get::get_family_timeline(&self.client, &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get the time span between two events (e.g. birth and death)")]
@@ -388,20 +172,16 @@ impl GrampsMcpServer {
         &self,
         Parameters(HandlePairInput { handle1, handle2 }): Parameters<HandlePairInput>,
     ) -> Result<CallToolResult, McpError> {
-        let item = get::get_event_span(&self.client, &handle1, &handle2)
+        get::get_event_span(&self.client, &handle1, &handle2)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&item).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(description = "Get tree-level statistics and metadata")]
     async fn get_tree_info(&self) -> Result<CallToolResult, McpError> {
-        let info = get::get_tree_info(&self.client)
+        get::get_tree_info(&self.client)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&info).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     // ── Create ──────────────────────────────────────────────────────────────
@@ -439,13 +219,13 @@ impl GrampsMcpServer {
             ..Default::default()
         };
 
-        let handle = create::create_person(&self.client, req)
+        create::create_person(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created person with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created person with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new family linking father and/or mother by their handles")]
@@ -464,13 +244,13 @@ impl GrampsMcpServer {
             ..Default::default()
         };
 
-        let handle = create::create_family(&self.client, req)
+        create::create_family(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created family with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created family with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new event (birth, death, marriage, etc.)")]
@@ -498,13 +278,13 @@ impl GrampsMcpServer {
             ..Default::default()
         };
 
-        let handle = create::create_event(&self.client, req)
+        create::create_event(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created event with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created event with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new place record")]
@@ -524,13 +304,13 @@ impl GrampsMcpServer {
             ..Default::default()
         };
 
-        let handle = create::create_place(&self.client, req)
+        create::create_place(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created place with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created place with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new source record")]
@@ -551,13 +331,13 @@ impl GrampsMcpServer {
             ..Default::default()
         };
 
-        let handle = create::create_source(&self.client, req)
+        create::create_source(&self.client, req)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created source with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created source with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new tag with a name, optional color (hex) and priority")]
@@ -569,12 +349,13 @@ impl GrampsMcpServer {
             priority,
         }): Parameters<CreateTagInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_tag(&self.client, &name, color.as_deref(), priority)
+        create::create_tag(&self.client, &name, color.as_deref(), priority)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created tag with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created tag with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new citation linking a source by handle")]
@@ -585,12 +366,13 @@ impl GrampsMcpServer {
             page,
         }): Parameters<CreateCitationInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_citation(&self.client, &source_handle, page.as_deref())
+        create::create_citation(&self.client, &source_handle, page.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created citation with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created citation with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a new repository record")]
@@ -598,12 +380,13 @@ impl GrampsMcpServer {
         &self,
         Parameters(CreateRepositoryInput { name, repo_type }): Parameters<CreateRepositoryInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_repository(&self.client, &name, repo_type.as_deref())
+        create::create_repository(&self.client, &name, repo_type.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created repository with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created repository with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Create a text note")]
@@ -611,12 +394,13 @@ impl GrampsMcpServer {
         &self,
         Parameters(CreateNoteInput { text, note_type }): Parameters<CreateNoteInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = create::create_note(&self.client, &text, note_type.as_deref())
+        create::create_note(&self.client, &text, note_type.as_deref())
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created note with handle: {handle}"
-        ))]))
+            .map_or_else(api_err, |handle| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created note with handle: {handle}"
+                ))]))
+            })
     }
 
     #[tool(
@@ -631,7 +415,7 @@ impl GrampsMcpServer {
             mime,
         }): Parameters<CreateMediaInput>,
     ) -> Result<CallToolResult, McpError> {
-        let handle = match (path.as_deref(), url.as_deref()) {
+        match (path.as_deref(), url.as_deref()) {
             (_, Some(url)) => {
                 create::create_media_from_url(
                     &self.client,
@@ -651,17 +435,16 @@ impl GrampsMcpServer {
                 .await
             }
             (None, None) => {
-                return Err(McpError::invalid_params(
+                return Ok(CallToolResult::error(vec![Content::text(
                     "Either path or url must be provided",
-                    None,
-                ))
+                )]))
             }
         }
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Created media with handle: {handle}"
-        ))]))
+        .map_or_else(api_err, |handle| {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Created media with handle: {handle}"
+            ))]))
+        })
     }
 
     // ── Update ──────────────────────────────────────────────────────────────
@@ -673,11 +456,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_person(&self.client, &handle, &data)
+        update::update_person(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -687,11 +468,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_family(&self.client, &handle, &data)
+        update::update_family(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -701,11 +480,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_event(&self.client, &handle, &data)
+        update::update_event(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -715,11 +492,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_place(&self.client, &handle, &data)
+        update::update_place(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -729,11 +504,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_source(&self.client, &handle, &data)
+        update::update_source(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -743,11 +516,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_citation(&self.client, &handle, &data)
+        update::update_citation(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -757,11 +528,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_repository(&self.client, &handle, &data)
+        update::update_repository(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -771,11 +540,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_note(&self.client, &handle, &data)
+        update::update_note(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -785,11 +552,9 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_tag(&self.client, &handle, &data)
+        update::update_tag(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     #[tool(
@@ -799,143 +564,29 @@ impl GrampsMcpServer {
         &self,
         Parameters(UpdateInput { handle, data }): Parameters<UpdateInput>,
     ) -> Result<CallToolResult, McpError> {
-        let result = update::update_media(&self.client, &handle, &data)
+        update::update_media(&self.client, &handle, &data)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+            .map_or_else(api_err, ok_json)
     }
 
     // ── Delete ──────────────────────────────────────────────────────────────
 
-    #[tool(description = "Delete a person by handle")]
-    async fn delete_person(
+    #[tool(description = "Delete an object by handle")]
+    async fn delete_object(
         &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
+        Parameters(DeleteObjectInput {
+            object_type,
+            handle,
+        }): Parameters<DeleteObjectInput>,
     ) -> Result<CallToolResult, McpError> {
-        delete::delete_person(&self.client, &handle)
+        delete::delete_object(&self.client, object_type.as_endpoint(), &handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted person {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a family by handle")]
-    async fn delete_family(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_family(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted family {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete an event by handle")]
-    async fn delete_event(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_event(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted event {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a place by handle")]
-    async fn delete_place(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_place(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted place {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a source by handle")]
-    async fn delete_source(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_source(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted source {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a citation by handle")]
-    async fn delete_citation(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_citation(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted citation {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a repository by handle")]
-    async fn delete_repository(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_repository(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted repository {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a note by handle")]
-    async fn delete_note(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_note(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted note {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a tag by handle")]
-    async fn delete_tag(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_tag(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted tag {handle}"
-        ))]))
-    }
-
-    #[tool(description = "Delete a media object by handle")]
-    async fn delete_media(
-        &self,
-        Parameters(HandleInput { handle }): Parameters<HandleInput>,
-    ) -> Result<CallToolResult, McpError> {
-        delete::delete_media(&self.client, &handle)
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Deleted media {handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted {} {handle}",
+                    object_type.as_str()
+                ))]))
+            })
     }
 
     // ── Merge ───────────────────────────────────────────────────────────────
@@ -958,10 +609,11 @@ impl GrampsMcpServer {
             family_merger.unwrap_or(true),
         )
         .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged person {duplicate_handle} into {survivor_handle}"
-        ))]))
+        .map_or_else(api_err, |_| {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Merged person {duplicate_handle} into {survivor_handle}"
+            ))]))
+        })
     }
 
     #[tool(
@@ -984,10 +636,11 @@ impl GrampsMcpServer {
             phoenix_mother_handle.as_deref(),
         )
         .await
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged family {duplicate_handle} into {survivor_handle}"
-        ))]))
+        .map_or_else(api_err, |_| {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Merged family {duplicate_handle} into {survivor_handle}"
+            ))]))
+        })
     }
 
     #[tool(
@@ -1002,10 +655,11 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_citation(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged citation {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged citation {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two events: survivor_handle is kept, duplicate_handle is deleted")]
@@ -1018,10 +672,11 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_event(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged event {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged event {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(
@@ -1036,10 +691,11 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_media(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged media {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged media {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two notes: survivor_handle is kept, duplicate_handle is deleted")]
@@ -1052,10 +708,11 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_note(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged note {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged note {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two places: survivor_handle is kept, duplicate_handle is deleted")]
@@ -1068,10 +725,11 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_place(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged place {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged place {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(
@@ -1086,10 +744,11 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_repository(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged repository {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged repository {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 
     #[tool(description = "Merge two sources: survivor_handle is kept, duplicate_handle is deleted")]
@@ -1102,19 +761,48 @@ impl GrampsMcpServer {
     ) -> Result<CallToolResult, McpError> {
         merge::merge_source(&self.client, &survivor_handle, &duplicate_handle)
             .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Merged source {duplicate_handle} into {survivor_handle}"
-        ))]))
+            .map_or_else(api_err, |_| {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Merged source {duplicate_handle} into {survivor_handle}"
+                ))]))
+            })
     }
 }
 
 #[tool_handler]
 impl ServerHandler for GrampsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("MCP server for querying and updating genealogy data in Gramps Web.")
-            .with_server_info(Implementation::new("gramps-mcp", env!("CARGO_PKG_VERSION")))
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_instructions("MCP server for querying and updating genealogy data in Gramps Web.")
+        .with_server_info(Implementation::new("gramps-mcp", env!("CARGO_PKG_VERSION")))
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        Ok(ListResourcesResult {
+            resources: vec![],
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        Err(McpError::invalid_params(
+            format!("Unknown resource: {}", request.uri),
+            None,
+        ))
     }
 
     // WORKAROUND: Claude Desktop does not recognise JSON Schema draft 2020-12
@@ -1123,6 +811,9 @@ impl ServerHandler for GrampsMcpServer {
     //   1. Replace the $schema URI with the draft-07 declaration.
     //   2. Replace boolean sub-schemas (draft-06+: `true` / `false`) with their
     //      object equivalents (`{}` / `{"not":{}}`), which draft-07 requires.
+    //   3. Rename "$defs" to "definitions" and update "$ref" paths accordingly.
+    //      draft-07 uses "definitions"; "$defs" is 2019-09+. Without this,
+    //      $ref resolution fails silently and enum constraints are lost.
     //
     // Track: https://github.com/modelcontextprotocol/rust-sdk/issues/326
     // Remove this override (and fix_schema below) once Claude Desktop supports
@@ -1142,6 +833,9 @@ impl ServerHandler for GrampsMcpServer {
                     "$schema".into(),
                     "http://json-schema.org/draft-07/schema#".into(),
                 );
+                if let Some(defs) = schema.remove("$defs") {
+                    schema.insert("definitions".into(), defs);
+                }
                 schema.values_mut().for_each(fix_schema);
                 tool
             })
@@ -1158,9 +852,19 @@ impl ServerHandler for GrampsMcpServer {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        self.tools
+        match self
+            .tools
             .call(ToolCallContext::new(self, request, context))
             .await
+        {
+            Err(e) if e.code == ErrorCode::INVALID_PARAMS => {
+                Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Invalid parameters: {}",
+                    e.message
+                ))]))
+            }
+            other => other,
+        }
     }
 }
 
@@ -1169,6 +873,9 @@ fn fix_schema(v: &mut serde_json::Value) {
     match v {
         serde_json::Value::Bool(true) => *v = serde_json::json!({}),
         serde_json::Value::Bool(false) => *v = serde_json::json!({"not": {}}),
+        serde_json::Value::String(s) if s.starts_with("#/$defs/") => {
+            *s = s.replacen("#/$defs/", "#/definitions/", 1);
+        }
         serde_json::Value::Object(m) => m.values_mut().for_each(fix_schema),
         serde_json::Value::Array(arr) => arr.iter_mut().for_each(fix_schema),
         _ => {}
