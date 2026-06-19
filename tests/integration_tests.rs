@@ -823,6 +823,58 @@ async fn search_endpoints_return_ok() {
 }
 
 #[tokio::test]
+async fn get_object_collection_pagination_and_gramps_id() {
+    let fixture = common::TestFixture::new().await;
+    let client = &fixture.client;
+
+    let h1 = create::create_person(client, CreatePersonRequest::default())
+        .await
+        .unwrap();
+    let h2 = create::create_person(client, CreatePersonRequest::default())
+        .await
+        .unwrap();
+
+    // plain collection browse returns an array
+    let all = get::get_object_collection(client, "people", None, None, None)
+        .await
+        .unwrap();
+    assert!(
+        all.is_array(),
+        "collection without params should be an array"
+    );
+
+    // pagination: page=1 pagesize=1 must return at most 1 item
+    let page1 = get::get_object_collection(client, "people", None, Some(1), Some(1))
+        .await
+        .unwrap();
+    assert!(page1.is_array());
+    assert!(
+        page1.as_array().unwrap().len() <= 1,
+        "pagesize=1 should return at most 1 item"
+    );
+
+    // gramps_id lookup: fetch the gramps_id of h1 then query by it
+    let obj = get::get_object_by_handle(client, "people", &h1)
+        .await
+        .unwrap();
+    let gramps_id = obj["gramps_id"].as_str().expect("gramps_id missing");
+    let by_id = get::get_object_collection(client, "people", Some(gramps_id), None, None)
+        .await
+        .unwrap();
+    assert!(by_id.is_array());
+    let items = by_id.as_array().unwrap();
+    assert_eq!(
+        items.len(),
+        1,
+        "gramps_id lookup should return exactly 1 item"
+    );
+    assert_eq!(items[0]["handle"].as_str(), Some(h1.as_str()));
+
+    delete::delete_object(client, "people", &h1).await.unwrap();
+    delete::delete_object(client, "people", &h2).await.unwrap();
+}
+
+#[tokio::test]
 async fn merge_operations() {
     let fixture = common::TestFixture::new().await;
     let client = &fixture.client;
