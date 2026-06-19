@@ -1,33 +1,53 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-pub fn type_to_endpoint(s: &str) -> Option<&'static str> {
-    match s {
-        "person" => Some("people"),
-        "family" => Some("families"),
-        "event" => Some("events"),
-        "place" => Some("places"),
-        "note" => Some("notes"),
-        "citation" => Some("citations"),
-        "source" => Some("sources"),
-        "media" => Some("media"),
-        "repository" => Some("repositories"),
-        "tag" => Some("tags"),
-        _ => None,
+#[derive(Deserialize, JsonSchema, Clone, Copy, strum::IntoStaticStr)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum ObjectType {
+    Person,
+    Family,
+    Event,
+    Place,
+    Note,
+    Citation,
+    Source,
+    Media,
+    Repository,
+    Tag,
+}
+
+impl ObjectType {
+    pub fn as_endpoint(self) -> &'static str {
+        match self {
+            Self::Person => "people",
+            Self::Family => "families",
+            Self::Event => "events",
+            Self::Place => "places",
+            Self::Note => "notes",
+            Self::Citation => "citations",
+            Self::Source => "sources",
+            Self::Media => "media",
+            Self::Repository => "repositories",
+            Self::Tag => "tags",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 #[derive(Deserialize, JsonSchema)]
 pub struct SearchInput {
     pub query: String,
-    /// Object type to narrow search. Omit to search all types. One of: "person", "family", "event", "place", "note", "citation", "source", "media", "repository", "tag"
-    pub object_type: Option<String>,
+    /// Narrow search to a specific object type. Omit to search all types.
+    pub object_type: Option<ObjectType>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 pub struct GetObjectInput {
-    /// Required. One of: "person", "family", "event", "place", "note", "citation", "source", "media", "repository", "tag"
-    pub object_type: String,
+    pub object_type: ObjectType,
     /// Handle of a specific object — returns a single record.
     pub handle: Option<String>,
     /// Filter by Gramps ID (e.g. "I0001") — returns a collection.

@@ -110,7 +110,7 @@ Set object_type to narrow results to a specific type, or omit to search across a
         &self,
         Parameters(SearchInput { query, object_type }): Parameters<SearchInput>,
     ) -> Result<CallToolResult, McpError> {
-        search::search(&self.client, &query, object_type.as_deref())
+        search::search(&self.client, &query, object_type.map(|t| t.as_str()))
             .await
             .map_or_else(api_err, ok_json)
     }
@@ -119,7 +119,6 @@ Set object_type to narrow results to a specific type, or omit to search across a
 
     #[tool(description = "\
 Get genealogy objects. \
-`object_type` is required (person/family/event/place/note/citation/source/media/repository/tag). \
 Provide `handle` for a single record, or `gramps_id`/`page`/`pagesize` to browse a collection. \
 For name/text search use the `search` tool instead.")]
     async fn get_object(
@@ -132,12 +131,7 @@ For name/text search use the `search` tool instead.")]
             pagesize,
         }): Parameters<GetObjectInput>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(endpoint) = params::type_to_endpoint(&object_type) else {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Unknown object_type \"{object_type}\". \
-                 Must be one of: person, family, event, place, note, citation, source, media, repository, tag"
-            ))]));
-        };
+        let endpoint = object_type.as_endpoint();
         let result = if let Some(h) = handle {
             get::get_object_by_handle(&self.client, endpoint, &h).await
         } else if gramps_id.is_some() || page.is_some() || pagesize.is_some() {
@@ -948,6 +942,9 @@ impl ServerHandler for GrampsMcpServer {
     //   1. Replace the $schema URI with the draft-07 declaration.
     //   2. Replace boolean sub-schemas (draft-06+: `true` / `false`) with their
     //      object equivalents (`{}` / `{"not":{}}`), which draft-07 requires.
+    //   3. Rename "$defs" to "definitions" and update "$ref" paths accordingly.
+    //      draft-07 uses "definitions"; "$defs" is 2019-09+. Without this,
+    //      $ref resolution fails silently and enum constraints are lost.
     //
     // Track: https://github.com/modelcontextprotocol/rust-sdk/issues/326
     // Remove this override (and fix_schema below) once Claude Desktop supports
@@ -967,6 +964,9 @@ impl ServerHandler for GrampsMcpServer {
                     "$schema".into(),
                     "http://json-schema.org/draft-07/schema#".into(),
                 );
+                if let Some(defs) = schema.remove("$defs") {
+                    schema.insert("definitions".into(), defs);
+                }
                 schema.values_mut().for_each(fix_schema);
                 tool
             })
@@ -1004,6 +1004,9 @@ fn fix_schema(v: &mut serde_json::Value) {
     match v {
         serde_json::Value::Bool(true) => *v = serde_json::json!({}),
         serde_json::Value::Bool(false) => *v = serde_json::json!({"not": {}}),
+        serde_json::Value::String(s) if s.starts_with("#/$defs/") => {
+            *s = s.replacen("#/$defs/", "#/definitions/", 1);
+        }
         serde_json::Value::Object(m) => m.values_mut().for_each(fix_schema),
         serde_json::Value::Array(arr) => arr.iter_mut().for_each(fix_schema),
         _ => {}
