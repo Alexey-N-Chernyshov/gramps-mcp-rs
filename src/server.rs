@@ -33,7 +33,7 @@ pub struct GrampsMcpServer {
 impl GrampsMcpServer {
     pub fn new(config: Config) -> Result<Self, reqwest::Error> {
         let http = reqwest::Client::builder()
-            .user_agent(concat!("gramps-mcp-rs/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("gramps-web-mcp-rs/", env!("CARGO_PKG_VERSION")))
             .build()?;
         let mut tools = Self::tool_router();
         if config.gramps_readonly {
@@ -779,7 +779,7 @@ impl ServerHandler for GrampsMcpServer {
                 .build(),
         )
         .with_instructions("MCP server for querying and updating genealogy data in Gramps Web.")
-        .with_server_info(Implementation::new("gramps-mcp", env!("CARGO_PKG_VERSION")))
+        .with_server_info(Implementation::new("gramps-web-mcp", env!("CARGO_PKG_VERSION")))
     }
 
     async fn list_resources(
