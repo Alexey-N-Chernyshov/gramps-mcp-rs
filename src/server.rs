@@ -157,6 +157,7 @@ Call this before writing a gql filter."
 
     #[tool(description = "\
 Get genealogy objects. \
+`object_type` is always required (person, family, event, place, note, citation, source, media, repository, tag). \
 Provide `handle` for a single record, or `gramps_id` / `gql` / `page` / `pagesize` to browse a collection. \
 Use `gql` for structured filtering (call get_gql_reference for syntax). \
 For full-text search use the `search` tool instead.")]
@@ -171,13 +172,12 @@ For full-text search use the `search` tool instead.")]
             pagesize,
         }): Parameters<GetObjectInput>,
     ) -> Result<CallToolResult, McpError> {
-        let endpoint = object_type.as_endpoint();
         let result = if let Some(h) = handle {
-            get::get_object_by_handle(&self.client, endpoint, &h).await
+            get::get_object_by_handle(&self.client, object_type.as_endpoint(), &h).await
         } else if gramps_id.is_some() || gql.is_some() || page.is_some() || pagesize.is_some() {
             get::get_object_collection(
                 &self.client,
-                endpoint,
+                object_type.as_endpoint(),
                 gramps_id.as_deref(),
                 gql.as_deref(),
                 page,
