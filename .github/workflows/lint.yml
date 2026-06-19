@@ -28,3 +28,9 @@ jobs:
 
       - name: machete
         uses: bnjbvr/cargo-machete@main
+
+      - name: deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+          command-arguments: --config .config/deny.toml
