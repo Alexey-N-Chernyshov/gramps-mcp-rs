@@ -36,7 +36,7 @@ gramps-mcp:
   image: ghcr.io/alexey-n-chernyshov/gramps-web-mcp-rs:latest
   restart: unless-stopped
   environment:
-    GRAMPS_API_URL: http://grampsweb:5000 # internal Docker service name and port
+    GRAMPS_API_URL: http://grampsweb:5000 # default service name in the official Gramps Web docker-compose
     GRAMPS_USERNAME: your-mcp-username
     GRAMPS_PASSWORD: your-mcp-password
     MCP_TRANSPORT: http
@@ -61,11 +61,15 @@ curl http://localhost:3000/health
 # → ok
 ```
 
+> **Production tip:** if the server is accessible from the internet, put a reverse proxy (nginx, Caddy) with TLS in front of port 3000 and use `https://` in the client URL. The bearer token alone is not safe over plain HTTP on a public network.
+
 ## Step 4 — Configure your AI client
 
 Replace `your-server-ip` with your server's IP address or domain name, and `your-secret-token` with the token from Step 2.
 
 ### Claude Desktop
+
+> **Note:** HTTP transport support in Claude Desktop is relatively new — make sure you're running the latest version.
 
 ```json
 {
