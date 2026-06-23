@@ -144,6 +144,12 @@ pub struct CreateFamilyInput {
 pub struct CreateEventInput {
     pub event_type: String,
     pub description: Option<String>,
+    /// Structured date as [day, month, year]. Use 0 for unknown parts, e.g. [0, 0, 1867] for
+    /// year-only, [7, 11, 1867] for 7 November 1867. Preferred over date_text — enables sorting
+    /// and filtering.
+    pub date: Option<[i32; 3]>,
+    /// Free-text date for approximate or unparseable dates, e.g. "circa 1850". Ignored if date
+    /// is provided.
     pub date_text: Option<String>,
     pub place_handle: Option<String>,
 }

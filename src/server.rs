@@ -295,16 +295,24 @@ For name/text search use the `search` tool instead.")]
         Parameters(CreateEventInput {
             event_type,
             description,
+            date,
             date_text,
             place_handle,
         }): Parameters<CreateEventInput>,
     ) -> Result<CallToolResult, McpError> {
         use crate::models::{event::CreateEventRequest, GrampsDate};
 
-        let date = date_text.map(|text| GrampsDate {
-            text: Some(text),
-            ..Default::default()
-        });
+        let date = if let Some([d, m, y]) = date {
+            Some(GrampsDate {
+                dateval: Some(serde_json::json!([d, m, y, false])),
+                ..Default::default()
+            })
+        } else {
+            date_text.map(|text| GrampsDate {
+                text: Some(text),
+                ..Default::default()
+            })
+        };
 
         let req = CreateEventRequest {
             event_type: Some(serde_json::json!(event_type)),
