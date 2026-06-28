@@ -126,8 +126,6 @@ Or add to `.mcp.json` in your project directory:
 }
 ```
 
-> If the client fails to connect to `/mcp`, try `/mcp/` with a trailing slash — behavior can differ depending on how the request reaches the server.
-
 ## Keeping up to date
 
 ```bash
