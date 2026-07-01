@@ -31,10 +31,9 @@ use rmcp::{
         wrapper::Parameters,
     },
     model::{
-        CallToolRequestParams, CallToolResult, Content, ErrorCode, Implementation,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, RawResource,
-        ReadResourceRequestParams, ReadResourceResult, ResourceContents, ServerCapabilities,
-        ServerInfo,
+        CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode, Implementation,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
+        ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
@@ -99,18 +98,20 @@ const WRITE_TOOLS: &[&str] = &[
 
 fn ok_json(v: serde_json::Value) -> Result<CallToolResult, McpError> {
     let text = serde_json::to_string_pretty(&v).unwrap_or_default();
-    Ok(CallToolResult::success(vec![Content::text(text)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
 }
 
 fn api_err(e: impl std::fmt::Display) -> Result<CallToolResult, McpError> {
-    Ok(CallToolResult::error(vec![Content::text(e.to_string())]))
+    Ok(CallToolResult::error(vec![ContentBlock::text(
+        e.to_string(),
+    )]))
 }
 
 fn require_object(data: &serde_json::Value) -> Option<Result<CallToolResult, McpError>> {
     if data.is_object() {
         None
     } else {
-        Some(Ok(CallToolResult::error(vec![Content::text(
+        Some(Ok(CallToolResult::error(vec![ContentBlock::text(
             "`data` must be a JSON object — pass the full object returned by get_object, not a string",
         )])))
     }
@@ -152,7 +153,9 @@ helper methods, and query examples by object type. \
 Call this before writing an oql filter."
     )]
     async fn get_oql_reference(&self) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text(OQL_REFERENCE)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            OQL_REFERENCE,
+        )]))
     }
 
     #[tool(description = "\
@@ -173,7 +176,7 @@ For full-text search use the `search` tool instead.")]
         }): Parameters<GetObjectInput>,
     ) -> Result<CallToolResult, McpError> {
         let Some(object_type) = object_type else {
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "`object_type` is required. Specify one of: \
                  person, family, event, place, note, citation, source, media, repository, tag",
             )]));
@@ -191,7 +194,7 @@ For full-text search use the `search` tool instead.")]
             )
             .await
         } else {
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Provide `handle` for a single object, \
                  or `gramps_id` / `oql` / `page` / `pagesize` to browse a collection.",
             )]));
@@ -284,7 +287,7 @@ For full-text search use the `search` tool instead.")]
         create::create_person(&self.client, req)
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created person with handle: {handle}"
                 ))]))
             })
@@ -309,7 +312,7 @@ For full-text search use the `search` tool instead.")]
         create::create_family(&self.client, req)
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created family with handle: {handle}"
                 ))]))
             })
@@ -351,7 +354,7 @@ For full-text search use the `search` tool instead.")]
         create::create_event(&self.client, req)
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created event with handle: {handle}"
                 ))]))
             })
@@ -377,7 +380,7 @@ For full-text search use the `search` tool instead.")]
         create::create_place(&self.client, req)
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created place with handle: {handle}"
                 ))]))
             })
@@ -404,7 +407,7 @@ For full-text search use the `search` tool instead.")]
         create::create_source(&self.client, req)
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created source with handle: {handle}"
                 ))]))
             })
@@ -422,7 +425,7 @@ For full-text search use the `search` tool instead.")]
         create::create_tag(&self.client, &name, color.as_deref(), priority)
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created tag with handle: {handle}"
                 ))]))
             })
@@ -439,7 +442,7 @@ For full-text search use the `search` tool instead.")]
         create::create_citation(&self.client, &source_handle, page.as_deref())
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created citation with handle: {handle}"
                 ))]))
             })
@@ -453,7 +456,7 @@ For full-text search use the `search` tool instead.")]
         create::create_repository(&self.client, &name, repo_type.as_deref())
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created repository with handle: {handle}"
                 ))]))
             })
@@ -467,7 +470,7 @@ For full-text search use the `search` tool instead.")]
         create::create_note(&self.client, &text, note_type.as_deref())
             .await
             .map_or_else(api_err, |handle| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Created note with handle: {handle}"
                 ))]))
             })
@@ -505,13 +508,13 @@ For full-text search use the `search` tool instead.")]
                 .await
             }
             (None, None) => {
-                return Ok(CallToolResult::error(vec![Content::text(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Either path or url must be provided",
                 )]))
             }
         }
         .map_or_else(api_err, |handle| {
-            Ok(CallToolResult::success(vec![Content::text(format!(
+            Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "Created media with handle: {handle}"
             ))]))
         })
@@ -680,7 +683,7 @@ For full-text search use the `search` tool instead.")]
         }): Parameters<DeleteObjectInput>,
     ) -> Result<CallToolResult, McpError> {
         let Some(object_type) = object_type else {
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "`object_type` is required. Specify one of: \
                  person, family, event, place, note, citation, source, media, repository, tag",
             )]));
@@ -688,7 +691,7 @@ For full-text search use the `search` tool instead.")]
         delete::delete_object(&self.client, object_type.as_endpoint(), &handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Deleted {} {handle}",
                     object_type.as_str()
                 ))]))
@@ -716,7 +719,7 @@ For full-text search use the `search` tool instead.")]
         )
         .await
         .map_or_else(api_err, |_| {
-            Ok(CallToolResult::success(vec![Content::text(format!(
+            Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "Merged person {duplicate_handle} into {survivor_handle}"
             ))]))
         })
@@ -743,7 +746,7 @@ For full-text search use the `search` tool instead.")]
         )
         .await
         .map_or_else(api_err, |_| {
-            Ok(CallToolResult::success(vec![Content::text(format!(
+            Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "Merged family {duplicate_handle} into {survivor_handle}"
             ))]))
         })
@@ -762,7 +765,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_citation(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged citation {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -779,7 +782,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_event(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged event {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -798,7 +801,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_media(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged media {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -815,7 +818,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_note(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged note {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -832,7 +835,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_place(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged place {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -851,7 +854,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_repository(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged repository {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -868,7 +871,7 @@ For full-text search use the `search` tool instead.")]
         merge::merge_source(&self.client, &survivor_handle, &duplicate_handle)
             .await
             .map_or_else(api_err, |_| {
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Merged source {duplicate_handle} into {survivor_handle}"
                 ))]))
             })
@@ -896,12 +899,12 @@ impl ServerHandler for GrampsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        let resource = RawResource::new("gramps://oql-reference", "oql-reference")
+        let resource = Resource::new("gramps://oql-reference", "oql-reference")
             .with_title("OQL Reference")
             .with_description("Object Query Language syntax, operators and helper method reference")
             .with_mime_type("text/markdown");
         Ok(ListResourcesResult {
-            resources: vec![rmcp::model::Annotated::new(resource, None)],
+            resources: vec![resource],
             meta: None,
             next_cursor: None,
         })
@@ -918,7 +921,7 @@ impl ServerHandler for GrampsMcpServer {
                 "gramps://oql-reference",
             )]));
         }
-        Err(McpError::invalid_params(
+        Err(McpError::resource_not_found(
             format!("Unknown resource: {}", request.uri),
             None,
         ))
@@ -977,7 +980,7 @@ impl ServerHandler for GrampsMcpServer {
             .await
         {
             Err(e) if e.code == ErrorCode::INVALID_PARAMS => {
-                Ok(CallToolResult::error(vec![Content::text(format!(
+                Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                     "Invalid parameters: {}",
                     e.message
                 ))]))
